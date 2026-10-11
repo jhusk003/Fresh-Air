@@ -53,8 +53,8 @@ The project may include the following technologies, depending on the enabled fea
 1. Clone the repository:
 
    ```bash
-   git clone https://github.com/YOUR-USERNAME/fresh-air.git
-   cd fresh-air
+   git clone https://github.com/jhusk003/Fresh-Air.git
+cd Fresh-Air
    ```
 
 2. Create and activate a virtual environment:
