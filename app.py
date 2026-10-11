@@ -1181,13 +1181,20 @@ NATURE_FACTS = [
 ]
 if "nature_fact_index" not in st.session_state:
     st.session_state.nature_fact_index = random.randrange(len(NATURE_FACTS))
-with st.expander("🌿 Nature Facts — a tiny curiosity break", expanded=False):
-    fact_title, fact_body = NATURE_FACTS[st.session_state.nature_fact_index]
-    st.markdown(f"**{fact_title}**")
-    st.write(fact_body)
-    if st.button("Show another nature fact", key="next_nature_fact"):
-        st.session_state.nature_fact_index = (st.session_state.nature_fact_index + 1) % len(NATURE_FACTS)
-        st.rerun()
+fact_title, fact_body = NATURE_FACTS[st.session_state.nature_fact_index]
+st.markdown(
+    f"""
+    <div class="glass-card" style="margin:.9rem 0 1rem; border-left:4px solid #a8f0ce;">
+        <div class="metric-label">🌿 A LITTLE NATURE FACT</div>
+        <div style="font-size:1.05rem;font-weight:800;margin:.35rem 0;">{fact_title}</div>
+        <div style="line-height:1.55;">{fact_body}</div>
+    </div>
+    """,
+    unsafe_allow_html=True,
+)
+if st.button("🌱 Show another fun fact", key="next_nature_fact"):
+    st.session_state.nature_fact_index = (st.session_state.nature_fact_index + 1) % len(NATURE_FACTS)
+    st.rerun()
 
 use_temporal = st.checkbox(
     "Use Temporal retry workflow (requires Temporal server and worker)",
@@ -1258,7 +1265,41 @@ if st.session_state.mission:
 
     st.markdown(
         f"""
-        <div class="glass-card">
+        <style>
+        .mission-rainbow-card {{
+            padding: 1.35rem 1.45rem;
+            border-radius: 20px;
+            border: 1px solid rgba(255,255,255,.28);
+            background: linear-gradient(115deg,
+                rgba(25,105,92,.96), rgba(55,91,138,.96),
+                rgba(119,81,137,.96), rgba(25,105,92,.96));
+            background-size: 300% 300%;
+            animation: missionRainbowShift 10s ease infinite;
+            box-shadow: 0 12px 32px rgba(0,0,0,.20);
+            color: #fff;
+            margin: .6rem 0 1rem;
+        }}
+        .mission-rainbow-card .mission-label {{
+            color: #d8ffe9; font-size: .72rem; letter-spacing: .15em;
+            font-weight: 800; text-transform: uppercase;
+        }}
+        .mission-rainbow-card .mission-title {{
+            color: #fff; font-size: 1.55rem; line-height: 1.25;
+            font-weight: 850; margin: .35rem 0 .7rem;
+        }}
+        .mission-rainbow-card .mission-description {{
+            color: #f3fbf8; font-size: 1rem; line-height: 1.6;
+        }}
+        @keyframes missionRainbowShift {{
+            0% {{ background-position: 0% 50%; }}
+            50% {{ background-position: 100% 50%; }}
+            100% {{ background-position: 0% 50%; }}
+        }}
+        @media (prefers-reduced-motion: reduce) {{
+            .mission-rainbow-card {{ animation: none; }}
+        }}
+        </style>
+        <div class="mission-rainbow-card">
             <div class="mission-label">YOUR NEXT SMALL WIN</div>
             <div class="mission-title">{mission["title"]}</div>
             <div class="mission-description">{mission["description"]}</div>
