@@ -121,30 +121,6 @@ client = MongoClient(
     serverSelectionTimeoutMS=10000,
     connectTimeoutMS=10000,
 )
-```
-
-PyMongo supports specifying a trusted CA bundle for TLS connections. This is a reasonable diagnostic, although it won't fix a network-access restriction by itself. <Cite refs={["turn651523search8","turn651523search10"]}/>
-
-## Step 3 — Redeploy and test
-
-1. Save both files.
-2. Commit and push them to your GitHub repository.
-3. In Streamlit Community Cloud, open your app and reboot it.
-4. Try the mission journal again.
-
-If it still fails, tell me **whether adding `0.0.0.0/0` temporarily to Atlas Network Access changed the error**. That will help us distinguish an access-list problem from a TLS or driver problem. Remove that broad access rule after testing if it doesn't resolve the issue.
-
-    # Confirm that Atlas is reachable.
-    client.admin.command("ping")
-
-    db = client[os.getenv("MONGODB_DATABASE", "fresh_air")]
-    collection = db[os.getenv("MONGODB_COLLECTION", "mission_journal")]
-
-    # Ensure every saved mission has a unique ID.
-    collection.create_index("mission_id", unique=True)
-
-    return collection
-
 
 def save_completed_mission(
     mission_id, title, activity, feedback=None, preferences=None,
