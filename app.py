@@ -879,189 +879,6 @@ async def run_temporal_mission(preferences):
     )
 
 
-# Voice feature: read the current mission aloud
-st.caption(
-    "🔊 Voice uses ElevenLabs. "
-    "Mission text is sent to an external service "
-    "when you request audio."
-)
-
-if st.button("🎧 Listen to My Mission"):
-    mission = st.session_state.get("mission")
-
-    if mission:
-        # Build a readable narration from the mission fields.
-        narration_parts = []
-
-        if mission.get("title"):
-            narration_parts.append(mission["title"])
-
-        if mission.get("description"):
-            narration_parts.append(mission["description"])
-
-        steps = mission.get("steps", [])
-
-        if steps:
-            narration_parts.append("Here are your steps.")
-
-            for index, step in enumerate(steps, start=1):
-                if isinstance(step, dict):
-                    step_text = step.get("text", str(step))
-                else:
-                    step_text = str(step)
-
-                narration_parts.append(
-                    f"Step {index}. {step_text}"
-                )
-
-        narration = ". ".join(narration_parts)
-
-        try:
-            with st.spinner("Creating your audio..."):
-                audio_bytes = generate_mission_audio(narration)
-
-            st.audio(audio_bytes, format="audio/mpeg")
-            st.success("Your mission is ready to listen to!")
-
-        except Exception as error:
-            st.error(
-                f"Could not generate audio: {error}"
-            )
-    else:
-        st.warning("Generate a mission before listening.")
-
-
-# =========================================================
-# CURRENT MISSION
-# =========================================================
-
-if st.session_state.mission:
-    mission = st.session_state.mission
-
-    st.markdown("---")
-    st.markdown(
-        '<div class="section-heading">Your mission</div>',
-        unsafe_allow_html=True,
-    )
-
-    if not st.session_state.get("mission_used_ai", False):
-        st.caption(
-            "Using a ready-to-go mission right now. Your local AI can be "
-            "connected for more personalized missions."
-        )
-
-    st.markdown(
-        f"""
-        <style>
-        .mission-rainbow-card {{
-            padding: 1.35rem 1.45rem;
-            border-radius: 20px;
-            border: 1px solid rgba(255,255,255,.28);
-            background: linear-gradient(115deg,
-                rgba(25,105,92,.96), rgba(55,91,138,.96),
-                rgba(119,81,137,.96), rgba(25,105,92,.96));
-            background-size: 300% 300%;
-            animation: missionRainbowShift 10s ease infinite;
-            box-shadow: 0 12px 32px rgba(0,0,0,.20);
-            color: #fff;
-            margin: .6rem 0 1rem;
-        }}
-        .mission-rainbow-card .mission-label {{
-            color: #d8ffe9; font-size: .72rem; letter-spacing: .15em;
-            font-weight: 800; text-transform: uppercase;
-        }}
-        .mission-rainbow-card .mission-title {{
-            color: #fff; font-size: 1.55rem; line-height: 1.25;
-            font-weight: 850; margin: .35rem 0 .7rem;
-        }}
-        .mission-rainbow-card .mission-description {{
-            color: #f3fbf8; font-size: 1rem; line-height: 1.6;
-        }}
-        @keyframes missionRainbowShift {{
-            0% {{ background-position: 0% 50%; }}
-            50% {{ background-position: 100% 50%; }}
-            100% {{ background-position: 0% 50%; }}
-        }}
-        @media (prefers-reduced-motion: reduce) {{
-            .mission-rainbow-card {{ animation: none; }}
-        }}
-        </style>
-        <div class="mission-rainbow-card">
-            <div class="mission-label">YOUR NEXT SMALL WIN</div>
-            <div class="mission-title">{mission["title"]}</div>
-            <div class="mission-description">{mission["description"]}</div>
-            <br>
-            <div class="mission-label">WHY IT MATTERS</div>
-            <div class="mission-description">{mission["impact"]}</div>
-        </div>
-        """,
-        unsafe_allow_html=True,
-    )
-
-    st.markdown("#### Your steps")
-
-    for i, step in enumerate(mission["steps"], start=1):
-        st.markdown(
-            f"""
-            <div class="step-item">
-                <strong style="color:#a8f0ce;">{i:02d}</strong>
-                &nbsp;&nbsp; {step}
-            </div>
-            """,
-            unsafe_allow_html=True,
-        )
-
-    st.markdown("")
-
-    complete_col, another_col = st.columns(2)
-
-    with complete_col:
-        if st.button(
-            f"✅ Complete Mission (+{mission['points']} points)",
-            type="primary",
-            use_container_width=True,
-        ):
-            mission_id = st.session_state.current_mission_id or str(uuid.uuid4())
-            st.session_state.current_mission_id = mission_id
-
-            # Avoid awarding points twice for the same mission ID.
-            completed_ids = st.session_state.completed_mission_ids
-            if mission_id not in completed_ids:
-                st.session_state.points += mission["points"]
-                st.session_state.completed.append(
-                    {
-                        "title": mission["title"],
-                        "points": mission["points"],
-                        "goal": mission.get("goal", "General"),
-                    }
-                )
-                completed_ids.append(mission_id)
-
-            save_completed_mission(
-                mission_id=mission_id,
-                title=str(mission.get("title", "Outdoor Mission")),
-                activity=str(mission.get("activity", mission.get("goal", mission.get("title", "Outdoor activity")))),
-                preferences=st.session_state.get("last_inputs", {}),
-                points=int(mission.get("points", 0)),
-                duration_minutes=int(st.session_state.get("last_inputs", {}).get("minutes", 0)),
-            )
-            st.session_state.mission_completed = True
-            st.success("Mission added to your session journal.")
-
-            st.session_state.last_completed_points = int(mission.get("points", 0))
-            st.session_state.last_completed_duration = int(st.session_state.get("last_inputs", {}).get("minutes", 0))
-            st.session_state.mission = None
-            st.success(
-                f"Mission completed! You earned {mission['points']} points."
-            )
-            st.rerun()
-
-    with another_col:
-        if st.button("🔄 Try Another Mission", use_container_width=True):
-            st.session_state.mission = None
-            st.rerun()
-
-
 # =========================================================
 # HEADER
 # =========================================================
@@ -1289,8 +1106,193 @@ if st.button("✨ Create My Mission", type="primary", use_container_width=True):
         st.session_state.mission_number += 1
         st.session_state.last_inputs = preferences
         st.session_state.mission_used_ai = used_ai
-        # Rerun so the newly generated mission renders at the very top of the page.
+        # Rerun so the newly generated mission renders directly below the Create My Mission button.
         st.rerun()
+
+# Voice feature: read the current mission aloud
+st.caption(
+    "🔊 Voice uses ElevenLabs. "
+    "Mission text is sent to an external service "
+    "when you request audio."
+)
+
+if st.button("🎧 Listen to My Mission"):
+    mission = st.session_state.get("mission")
+
+    if mission:
+        # Build a readable narration from the mission fields.
+        narration_parts = []
+
+        if mission.get("title"):
+            narration_parts.append(mission["title"])
+
+        if mission.get("description"):
+            narration_parts.append(mission["description"])
+
+        steps = mission.get("steps", [])
+
+        if steps:
+            narration_parts.append("Here are your steps.")
+
+            for index, step in enumerate(steps, start=1):
+                if isinstance(step, dict):
+                    step_text = step.get("text", str(step))
+                else:
+                    step_text = str(step)
+
+                narration_parts.append(
+                    f"Step {index}. {step_text}"
+                )
+
+        narration = ". ".join(narration_parts)
+
+        try:
+            with st.spinner("Creating your audio..."):
+                audio_bytes = generate_mission_audio(narration)
+
+            st.audio(audio_bytes, format="audio/mpeg")
+            st.success("Your mission is ready to listen to!")
+
+        except Exception as error:
+            st.error(
+                f"Could not generate audio: {error}"
+            )
+    else:
+        st.warning("Generate a mission before listening.")
+
+
+# =========================================================
+# CURRENT MISSION
+# =========================================================
+
+if st.session_state.mission:
+    mission = st.session_state.mission
+
+    st.markdown("---")
+    st.markdown(
+        '<div class="section-heading">Your mission</div>',
+        unsafe_allow_html=True,
+    )
+
+    if not st.session_state.get("mission_used_ai", False):
+        st.caption(
+            "Using a ready-to-go mission right now. Your local AI can be "
+            "connected for more personalized missions."
+        )
+
+    st.markdown(
+        f"""
+        <style>
+        .mission-rainbow-card {{
+            padding: 1.35rem 1.45rem;
+            border-radius: 20px;
+            border: 1px solid rgba(255,255,255,.28);
+            background: linear-gradient(115deg,
+                rgba(25,105,92,.96), rgba(55,91,138,.96),
+                rgba(119,81,137,.96), rgba(25,105,92,.96));
+            background-size: 300% 300%;
+            animation: missionRainbowShift 10s ease infinite;
+            box-shadow: 0 12px 32px rgba(0,0,0,.20);
+            color: #fff;
+            margin: .6rem 0 1rem;
+        }}
+        .mission-rainbow-card .mission-label {{
+            color: #d8ffe9; font-size: .72rem; letter-spacing: .15em;
+            font-weight: 800; text-transform: uppercase;
+        }}
+        .mission-rainbow-card .mission-title {{
+            color: #fff; font-size: 1.55rem; line-height: 1.25;
+            font-weight: 850; margin: .35rem 0 .7rem;
+        }}
+        .mission-rainbow-card .mission-description {{
+            color: #f3fbf8; font-size: 1rem; line-height: 1.6;
+        }}
+        @keyframes missionRainbowShift {{
+            0% {{ background-position: 0% 50%; }}
+            50% {{ background-position: 100% 50%; }}
+            100% {{ background-position: 0% 50%; }}
+        }}
+        @media (prefers-reduced-motion: reduce) {{
+            .mission-rainbow-card {{ animation: none; }}
+        }}
+        </style>
+        <div class="mission-rainbow-card">
+            <div class="mission-label">YOUR NEXT SMALL WIN</div>
+            <div class="mission-title">{mission["title"]}</div>
+            <div class="mission-description">{mission["description"]}</div>
+            <br>
+            <div class="mission-label">WHY IT MATTERS</div>
+            <div class="mission-description">{mission["impact"]}</div>
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
+
+    st.markdown("#### Your steps")
+
+    for i, step in enumerate(mission["steps"], start=1):
+        st.markdown(
+            f"""
+            <div class="step-item">
+                <strong style="color:#a8f0ce;">{i:02d}</strong>
+                &nbsp;&nbsp; {step}
+            </div>
+            """,
+            unsafe_allow_html=True,
+        )
+
+    st.markdown("")
+
+    complete_col, another_col = st.columns(2)
+
+    with complete_col:
+        if st.button(
+            f"✅ Complete Mission (+{mission['points']} points)",
+            type="primary",
+            use_container_width=True,
+        ):
+            mission_id = st.session_state.current_mission_id or str(uuid.uuid4())
+            st.session_state.current_mission_id = mission_id
+
+            # Avoid awarding points twice for the same mission ID.
+            completed_ids = st.session_state.completed_mission_ids
+            if mission_id not in completed_ids:
+                st.session_state.points += mission["points"]
+                st.session_state.completed.append(
+                    {
+                        "title": mission["title"],
+                        "points": mission["points"],
+                        "goal": mission.get("goal", "General"),
+                    }
+                )
+                completed_ids.append(mission_id)
+
+            save_completed_mission(
+                mission_id=mission_id,
+                title=str(mission.get("title", "Outdoor Mission")),
+                activity=str(mission.get("activity", mission.get("goal", mission.get("title", "Outdoor activity")))),
+                preferences=st.session_state.get("last_inputs", {}),
+                points=int(mission.get("points", 0)),
+                duration_minutes=int(st.session_state.get("last_inputs", {}).get("minutes", 0)),
+            )
+            st.session_state.mission_completed = True
+            st.success("Mission added to your session journal.")
+
+            st.session_state.last_completed_points = int(mission.get("points", 0))
+            st.session_state.last_completed_duration = int(st.session_state.get("last_inputs", {}).get("minutes", 0))
+            st.session_state.mission = None
+            st.success(
+                f"Mission completed! You earned {mission['points']} points."
+            )
+            st.rerun()
+
+    with another_col:
+        if st.button("🔄 Try Another Mission", use_container_width=True):
+            st.session_state.mission = None
+            st.rerun()
+
+
+
 
 # =========================================================
 # REWARDS
