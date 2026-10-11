@@ -1,0 +1,21 @@
+services:
+  - type: web
+    name: fresh-air-guided-missions
+    runtime: python
+    plan: free
+    buildCommand: pip install -r requirements.txt
+    startCommand: streamlit run app.py --server.address 0.0.0.0 --server.port $PORT --server.headless true
+    healthCheckPath: /_stcore/health
+    envVars:
+      - key: PYTHON_VERSION
+        value: 3.11.9
+      - key: OLLAMA_URL
+        sync: false
+      - key: OLLAMA_MODEL
+        value: gemma2:2b
+      - key: SERPAPI_API_KEY
+        sync: false
+      - key: ELEVENLABS_API_KEY
+        sync: false
+      - key: ELEVENLABS_VOICE_ID
+        sync: false
