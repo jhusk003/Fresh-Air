@@ -3,3 +3,5 @@ requests
 python-dotenv
 pymongo
 temporalio
+
+certifi>=2024.8.30
