@@ -170,6 +170,13 @@ DEFAULT_MODEL = os.getenv("OLLAMA_MODEL", "llama3.2:1b")
 # ANIMATED ENVIRONMENTAL BACKGROUND
 # =========================================================
 
+# Ollama supplies a small, validated visual theme with each mission. The model
+# selects a scene; CSS handles the actual photographic imagery and animation.
+_existing_mission = st.session_state.get("mission") or {}
+_visual_theme = str(_existing_mission.get("visual_theme", "forest")).strip().lower()
+if _visual_theme not in {"forest", "garden", "meadow", "rain", "winter", "coast"}:
+    _visual_theme = "forest"
+
 st.markdown(
     """
     <style>
@@ -192,24 +199,14 @@ st.markdown(
         color: var(--ink);
     }
 
-    /* Keep the animated scenery behind all app content */
+    /* A photographic, layered environment replaces the floating-shape look. */
     .stApp::before {
         content: "";
         position: fixed;
         inset: 0;
         z-index: 0;
         pointer-events: none;
-        background:
-            linear-gradient(
-                180deg,
-                rgba(5, 22, 33, 0.35),
-                rgba(5, 22, 33, 0.60)
-            ),
-            linear-gradient(
-                90deg,
-                rgba(8, 30, 36, 0.35),
-                transparent 60%
-            );
+        background: linear-gradient(180deg, rgba(5, 19, 24, .24) 0%, rgba(5, 24, 27, .30) 44%, rgba(4, 18, 20, .72) 100%);
     }
 
     .stApp::after {
@@ -218,307 +215,123 @@ st.markdown(
         inset: 0;
         z-index: 0;
         pointer-events: none;
-        opacity: 0.8;
-        background:
-            radial-gradient(
-                ellipse at 80% 15%,
-                rgba(255, 220, 155, 0.18),
-                transparent 35%
-            ),
-            radial-gradient(
-                ellipse at 10% 75%,
-                rgba(94, 211, 173, 0.15),
-                transparent 40%
-            );
+        background: radial-gradient(ellipse at 50% 5%, rgba(255, 239, 198, .16), transparent 44%),
+                    linear-gradient(90deg, rgba(3, 18, 18, .26), transparent 36%, transparent 70%, rgba(3, 18, 18, .20));
     }
 
-    /* Animated scene behind the app */
     .environment {
+        --scene-image: url("https://images.unsplash.com/photo-1448375240586-882707db888b?auto=format&fit=crop&w=2400&q=85");
         position: fixed;
         inset: 0;
         z-index: 0;
         overflow: hidden;
         pointer-events: none;
-        background: linear-gradient(
-            180deg,
-            #497f91 0%,
-            #8cb9ba 48%,
-            #274f56 100%
-        );
-        animation: skyCycle 32s infinite;
+        isolation: isolate;
+        background: #193b32;
     }
+    .environment.scene-forest { --scene-image: url("https://images.unsplash.com/photo-1448375240586-882707db888b?auto=format&fit=crop&w=2400&q=85"); }
+    .environment.scene-garden { --scene-image: url("https://images.unsplash.com/photo-1416879595882-3373a0480b5b?auto=format&fit=crop&w=2400&q=85"); }
+    .environment.scene-meadow { --scene-image: url("https://images.unsplash.com/photo-1500530855697-b586d89ba3ee?auto=format&fit=crop&w=2400&q=85"); }
+    .environment.scene-rain { --scene-image: url("https://images.unsplash.com/photo-1511497584788-876760111969?auto=format&fit=crop&w=2400&q=85"); }
+    .environment.scene-winter { --scene-image: url("https://images.unsplash.com/photo-1418985991508-e47386d96a71?auto=format&fit=crop&w=2400&q=85"); }
+    .environment.scene-coast { --scene-image: url("https://images.unsplash.com/photo-1500375592092-40eb2168fd21?auto=format&fit=crop&w=2400&q=85"); }
 
-    .sun {
+    /* Slow camera drift adds depth without making the page feel busy. */
+    .environment .landscape {
         position: absolute;
-        width: clamp(70px, 9vw, 125px);
-        height: clamp(70px, 9vw, 125px);
-        top: 10%;
-        right: 15%;
-        border-radius: 50%;
-        background: radial-gradient(circle at 32% 28%, #fff9d8 0%, #ffe6a3 38%, #f4b96f 72%, rgba(244,185,111,.15) 100%);
-        box-shadow: 0 0 35px rgba(255, 223, 153, .5), 0 0 100px rgba(255, 223, 153, .25), inset -10px -12px 24px rgba(191, 117, 58, .18);
-        animation: sunGlow 5s ease-in-out infinite alternate, sunDrift 24s ease-in-out infinite;
+        inset: -3%;
+        background-image: var(--scene-image);
+        background-position: center 48%;
+        background-size: cover;
+        transform: scale(1.06);
+        filter: saturate(.88) contrast(1.04);
+        animation: landscapeDrift 42s ease-in-out infinite alternate;
+        will-change: transform;
     }
-
-    /* Atmospheric layers: moving rain, snow, wind and soft drifting pollen */
-    .environment::before {
+    .environment .landscape::before {
         content: "";
         position: absolute;
-        inset: -35% -15%;
+        inset: 0;
+        background: linear-gradient(180deg, rgba(10, 29, 29, .08) 0%, rgba(8, 28, 25, .08) 35%, rgba(4, 18, 17, .56) 100%);
+    }
+    .environment .light-haze {
+        position: absolute;
+        inset: -20%;
+        background: radial-gradient(ellipse at 72% 17%, rgba(255, 226, 165, .22), transparent 27%),
+                    radial-gradient(ellipse at 15% 55%, rgba(127, 214, 173, .12), transparent 35%);
+        mix-blend-mode: screen;
+        animation: hazeDrift 28s ease-in-out infinite alternate;
+    }
+    .environment .depth-vignette {
+        position: absolute;
+        inset: 0;
+        box-shadow: inset 0 0 170px rgba(2, 15, 15, .48);
+    }
+
+    /* Restrained weather overlays: visible, but never the main subject. */
+    .environment .rain-layer {
+        position: absolute;
+        inset: -25% -10%;
         opacity: 0;
-        pointer-events: none;
-        background-image: repeating-linear-gradient(106deg, transparent 0 24px, rgba(220,244,255,.52) 25px, transparent 27px 42px);
-        background-size: 95px 145px;
-        animation: rainFall .62s linear infinite, rainWeather 32s steps(1,end) infinite;
-        filter: blur(.35px);
+        background-image: repeating-linear-gradient(108deg, transparent 0 28px, rgba(225, 244, 250, .42) 29px, transparent 30px 48px);
+        background-size: 90px 120px;
+        animation: rainDrift 1.1s linear infinite;
     }
-    .environment::after {
-        content: "";
+    .environment.scene-rain .rain-layer { opacity: .26; }
+    .environment .snow-layer {
         position: absolute;
-        inset: -8% 0 0;
+        inset: -5% 0 0;
         opacity: 0;
-        pointer-events: none;
-        background-image: radial-gradient(circle, rgba(255,255,255,.95) 0 1.5px, transparent 2.4px), radial-gradient(circle, rgba(235,250,255,.85) 0 2px, transparent 3px), radial-gradient(circle, rgba(255,255,255,.72) 0 1px, transparent 2px);
-        background-size: 87px 93px, 137px 151px, 61px 69px;
-        animation: snowFall 13s linear infinite, snowWeather 32s steps(1,end) infinite;
-        filter: drop-shadow(0 0 4px rgba(255,255,255,.25));
+        background-image: radial-gradient(circle, rgba(255,255,255,.92) 0 1.2px, transparent 2px),
+                          radial-gradient(circle, rgba(255,255,255,.72) 0 2px, transparent 3px),
+                          radial-gradient(circle, rgba(255,255,255,.8) 0 1px, transparent 2px);
+        background-size: 91px 105px, 151px 169px, 63px 77px;
+        animation: snowDrift 18s linear infinite;
     }
-
-    .wind-streaks { position:absolute; inset:0; opacity:.32; overflow:hidden; }
-    .wind-streaks span { position:absolute; width:clamp(90px,16vw,240px); height:1px; left:-28%; background:linear-gradient(90deg,transparent,rgba(240,255,255,.8),transparent); animation:windSweep 9s linear infinite; }
-    .wind-streaks span:nth-child(1){top:24%;animation-delay:-2s}
-    .wind-streaks span:nth-child(2){top:39%;animation-delay:-6s;transform:scale(.65)}
-    .wind-streaks span:nth-child(3){top:56%;animation-delay:-4s;transform:scale(1.3)}
-    .wind-streaks span:nth-child(4){top:68%;animation-delay:-8s;transform:scale(.8)}
-
-    /* Floating translucent 3-D forms add depth without covering content */
-    .orb, .crystal { position:absolute; pointer-events:none; transform-style:preserve-3d; }
-    .orb { border-radius:50%; background:radial-gradient(circle at 28% 22%,rgba(255,255,255,.9),rgba(170,237,223,.36) 18%,rgba(62,151,151,.14) 55%,rgba(10,50,64,.06) 75%); border:1px solid rgba(255,255,255,.22); box-shadow:inset -12px -16px 25px rgba(7,41,52,.17),inset 7px 7px 18px rgba(255,255,255,.15),0 18px 42px rgba(0,0,0,.13); backdrop-filter:blur(1px); animation:orbFloat 15s ease-in-out infinite; }
-    .orb.one{width:clamp(48px,7vw,95px);height:clamp(48px,7vw,95px);left:10%;top:24%;animation-delay:-3s}
-    .orb.two{width:clamp(28px,4vw,55px);height:clamp(28px,4vw,55px);right:26%;top:45%;animation-delay:-8s}
-    .orb.three{width:clamp(38px,5vw,72px);height:clamp(38px,5vw,72px);left:39%;top:12%;animation-delay:-11s}
-    .crystal { width:70px;height:90px; background:linear-gradient(135deg,rgba(238,255,250,.38),rgba(90,190,171,.1) 48%,rgba(26,93,100,.28)); clip-path:polygon(50% 0,92% 25%,78% 82%,48% 100%,13% 72%,7% 24%); border:1px solid rgba(255,255,255,.22); filter:drop-shadow(0 15px 18px rgba(0,0,0,.15)); animation:crystalTurn 18s ease-in-out infinite; }
-    .crystal.one{right:9%;top:54%;transform:scale(.9);animation-delay:-5s}
-    .crystal.two{left:23%;top:58%;transform:scale(.55);animation-delay:-12s}
-
-    /* Layered foreground plants with curved stems and dimensional leaves */
-    .plant { position:absolute; bottom:-3%; width:190px; height:290px; opacity:.9; transform-origin:bottom center; animation:plantSway 7s ease-in-out infinite; filter:drop-shadow(0 12px 12px rgba(0,0,0,.18)); }
-    .plant.left{left:-25px;transform:scale(.82);}
-    .plant.right{right:-30px;transform:scale(1.04) scaleX(-1);animation-delay:-3.5s}
-    .plant .stem{position:absolute;bottom:0;left:48%;width:5px;height:90%;border-radius:100%;background:linear-gradient(90deg,#173d35,#4b8b60,#9cc78b);transform:rotate(7deg);transform-origin:bottom;}
-    .plant .leaf{position:absolute;width:68px;height:31px;border-radius:100% 0 100% 0;background:linear-gradient(145deg,#b5d99a 0%,#579969 38%,#1e5949 100%);box-shadow:inset 3px 3px 6px rgba(255,255,255,.22),inset -5px -5px 8px rgba(0,30,20,.2);}
-    .plant .leaf:after{content:"";position:absolute;left:8%;top:49%;width:83%;height:1px;background:rgba(221,245,184,.65);transform:rotate(-10deg);}
-    .plant .l1{left:2%;bottom:22%;transform:rotate(28deg)} .plant .l2{left:48%;bottom:34%;transform:rotate(205deg) scale(.92)} .plant .l3{left:-2%;bottom:48%;transform:rotate(18deg) scale(.8)} .plant .l4{left:46%;bottom:61%;transform:rotate(208deg) scale(.72)} .plant .l5{left:16%;bottom:72%;transform:rotate(-8deg) scale(.58)}
-
-    .cloud {
+    .environment.scene-winter .snow-layer { opacity: .58; }
+    .environment .wind-layer {
         position: absolute;
-        top: 16%;
-        left: -30%;
-        width: 180px;
-        height: 38px;
-        border-radius: 50px;
-        background: rgba(255,255,255,0.26);
-        filter: blur(2px);
-        animation: cloudMove 38s linear infinite;
+        inset: 0;
+        opacity: .18;
+        background: repeating-linear-gradient(174deg, transparent 0 95px, rgba(232, 249, 239, .22) 96px, transparent 98px 155px);
+        mask-image: linear-gradient(90deg, transparent, black 28%, black 75%, transparent);
+        animation: windDrift 13s ease-in-out infinite alternate;
     }
 
-    .cloud::before,
-    .cloud::after {
-        content: "";
-        position: absolute;
-        border-radius: 50%;
-        background: inherit;
-    }
-
-    .cloud::before {
-        width: 65px;
-        height: 65px;
-        left: 28px;
-        top: -30px;
-    }
-
-    .cloud::after {
-        width: 85px;
-        height: 75px;
-        right: 25px;
-        top: -40px;
-    }
-
-    .cloud.two {
-        top: 28%;
-        animation-duration: 52s;
-        animation-delay: -18s;
-        transform: scale(0.7);
-        opacity: 0.65;
-    }
-
-    .mountain {
-        position: absolute;
-        bottom: 0;
-        width: 0;
-        height: 0;
-        border-left: 35vw solid transparent;
-        border-right: 35vw solid transparent;
-        border-bottom: 52vh solid #335c59;
-        left: -12%;
-        animation: mountainCycle 32s infinite;
-    }
-
-    .mountain.back {
-        left: 32%;
-        border-left-width: 29vw;
-        border-right-width: 29vw;
-        border-bottom-width: 43vh;
-        border-bottom-color: #47766d;
-        opacity: 0.85;
-    }
-
-    .mountain.front {
-        left: 52%;
-        border-left-width: 34vw;
-        border-right-width: 34vw;
-        border-bottom-width: 35vh;
-        border-bottom-color: #203f43;
-    }
-
-    .glacier {
-        position: absolute;
-        inset: 42% -10% 0;
-        opacity: 0;
-        background:
-            linear-gradient(
-                135deg,
-                transparent 0 27%,
-                rgba(225, 249, 251, 0.85) 27.2% 35%,
-                transparent 35.2% 42%,
-                rgba(181, 229, 239, 0.85) 42.2% 50%,
-                transparent 50.2%
-            ),
-            linear-gradient(
-                180deg,
-                #a8dbe4 0%,
-                #5e9ba9 50%,
-                #285666 100%
-            );
-        clip-path: polygon(
-            0 45%, 13% 20%, 25% 38%, 40% 0,
-            53% 31%, 66% 8%, 78% 37%, 91% 16%,
-            100% 40%, 100% 100%, 0 100%
-        );
-        animation: glacierCycle 32s infinite;
-    }
-
-    .forest {
-        position: absolute;
-        inset: 48% 0 0;
-        opacity: 0;
-        background:
-            repeating-linear-gradient(
-                90deg,
-                transparent 0 25px,
-                rgba(13, 53, 43, 0.9) 26px 40px,
-                transparent 41px 65px
-            ),
-            linear-gradient(180deg, #477c63, #163e37);
-        clip-path: polygon(
-            0 35%, 5% 10%, 10% 42%, 15% 5%,
-            22% 44%, 28% 0, 35% 39%, 42% 9%,
-            50% 45%, 58% 0, 65% 42%, 73% 8%,
-            80% 40%, 89% 2%, 96% 42%, 100% 18%,
-            100% 100%, 0 100%
-        );
-        animation: forestCycle 32s infinite;
-    }
-
-    .waves {
+    /* Realistic foliage photography at the lower edges anchors the scene. */
+    .environment .foliage {
         position: absolute;
         bottom: -5%;
-        left: -10%;
-        width: 120%;
-        height: 42%;
-        border-radius: 48% 52% 0 0;
-        background: linear-gradient(
-            180deg,
-            rgba(80, 179, 183, 0.85),
-            rgba(20, 85, 105, 0.98)
-        );
-        opacity: 0;
-        animation: waveCycle 32s infinite;
+        width: min(38vw, 470px);
+        height: 47vh;
+        min-height: 250px;
+        background-image: url("https://images.unsplash.com/photo-1497250681960-ef046c08a56e?auto=format&fit=crop&w=1000&q=85");
+        background-size: cover;
+        background-position: center;
+        opacity: .45;
+        filter: saturate(.88) brightness(.66) contrast(1.08);
+        -webkit-mask-image: linear-gradient(to top, #000 0%, #000 45%, transparent 100%);
+        mask-image: linear-gradient(to top, #000 0%, #000 45%, transparent 100%);
+        animation: foliageSway 15s ease-in-out infinite alternate;
     }
+    .environment .foliage.left { left: -9%; transform-origin: bottom left; }
+    .environment .foliage.right { right: -9%; transform: scaleX(-1); animation-delay: -7s; }
 
-    .waves.second {
-        bottom: -12%;
-        height: 34%;
-        left: -20%;
-        background: linear-gradient(
-            180deg,
-            rgba(139, 220, 206, 0.65),
-            rgba(31, 106, 122, 0.95)
-        );
-        animation: waveCycle 32s infinite, waveMove 7s ease-in-out infinite;
+    @keyframes landscapeDrift {
+        from { transform: scale(1.06) translate3d(-.4%, 0, 0); }
+        to { transform: scale(1.13) translate3d(.5%, -1%, 0); }
     }
-
-    @keyframes skyCycle {
-        0%, 24% {
-            background: linear-gradient(180deg, #477f96, #9bc7c6 55%, #345d5c);
-        }
-        25%, 49% {
-            background: linear-gradient(180deg, #8dbac9, #d5e8e9 55%, #628c99);
-        }
-        50%, 74% {
-            background: linear-gradient(180deg, #426c87, #93b5c3 55%, #3e727a);
-        }
-        75%, 100% {
-            background: linear-gradient(180deg, #254f55, #659b88 55%, #183d37);
-        }
+    @keyframes hazeDrift {
+        from { transform: translate3d(-1.5%, .5%, 0) scale(1); opacity: .65; }
+        to { transform: translate3d(1.5%, -1%, 0) scale(1.05); opacity: 1; }
     }
+    @keyframes rainDrift { from { transform: translate3d(-2%, -3%, 0); } to { transform: translate3d(3%, 9%, 0); } }
+    @keyframes snowDrift { from { transform: translate3d(-1%, -3%, 0); } to { transform: translate3d(2%, 8%, 0); } }
+    @keyframes windDrift { from { transform: translateX(-2%); opacity: .08; } to { transform: translateX(2%); opacity: .22; } }
+    @keyframes foliageSway { from { background-position: 48% 50%; } to { background-position: 53% 50%; } }
 
-    @keyframes mountainCycle {
-        0%, 24% { opacity: 1; }
-        25%, 49% { opacity: 0.12; }
-        50%, 74% { opacity: 0.75; }
-        75%, 100% { opacity: 0.35; }
-    }
-
-    @keyframes glacierCycle {
-        0%, 24% { opacity: 0; }
-        25%, 49% { opacity: 0.92; }
-        50%, 100% { opacity: 0; }
-    }
-
-    @keyframes forestCycle {
-        0%, 74% { opacity: 0; }
-        75%, 100% { opacity: 0.9; }
-    }
-
-    @keyframes waveCycle {
-        0%, 49% { opacity: 0; }
-        50%, 74% { opacity: 0.95; }
-        75%, 100% { opacity: 0; }
-    }
-
-    @keyframes waveMove {
-        0%, 100% { transform: translateX(-2%) rotate(-2deg); }
-        50% { transform: translateX(2%) rotate(2deg); }
-    }
-
-    @keyframes rainFall { from { transform:translate3d(-4%, -12%, 0); } to { transform:translate3d(4%, 12%, 0); } }
-    @keyframes rainWeather { 0%, 24%, 75%, 100% { opacity:0; } 25%, 49% { opacity:.06; } 50%, 74% { opacity:.48; } }
-    @keyframes snowFall { 0%, 24%, 50%, 75%, 100% { opacity:0; } 25%, 49% { opacity:.9; } 76%, 99% { opacity:.5; } }
-    @keyframes windSweep { 0% { left:-30%; opacity:0; } 15% {opacity:.8} 85% {opacity:.55} 100% {left:130%;opacity:0} }
-    @keyframes orbFloat { 0%,100% { translate:0 0; rotate:-5deg; } 50% { translate:18px -28px; rotate:9deg; } }
-    @keyframes crystalTurn { 0%,100% { translate:0 0; rotate:-8deg; } 50% { translate:-16px -20px; rotate:12deg; } }
-    @keyframes plantSway { 0%,100% { rotate:-2deg; } 50% { rotate:3deg; } }
-    @keyframes sunDrift { 0%,100% { translate:0 0; } 50% { translate:-20px 8px; } }
-
-    @keyframes cloudMove {
-        from { left: -30%; }
-        to { left: 120%; }
-    }
-
-    @keyframes sunGlow {
-        from { transform: scale(0.96); opacity: 0.8; }
-        to { transform: scale(1.04); opacity: 1; }
+    @media (prefers-reduced-motion: reduce) {
+        .environment *, .environment::before, .environment::after { animation: none !important; }
     }
 
     /* Ensure Streamlit content appears above scenery */
@@ -769,24 +582,17 @@ st.markdown(
     }
     </style>
 
-    <div class="environment">
-        <div class="sun"></div>
-        <div class="cloud"></div>
-        <div class="cloud two"></div>
-        <div class="mountain"></div>
-        <div class="mountain back"></div>
-        <div class="mountain front"></div>
-        <div class="glacier"></div>
-        <div class="forest"></div>
-        <div class="waves"></div>
-        <div class="waves second"></div>
-        <div class="wind-streaks"><span></span><span></span><span></span><span></span></div>
-        <div class="orb one"></div><div class="orb two"></div><div class="orb three"></div>
-        <div class="crystal one"></div><div class="crystal two"></div>
-        <div class="plant left"><div class="stem"></div><i class="leaf l1"></i><i class="leaf l2"></i><i class="leaf l3"></i><i class="leaf l4"></i><i class="leaf l5"></i></div>
-        <div class="plant right"><div class="stem"></div><i class="leaf l1"></i><i class="leaf l2"></i><i class="leaf l3"></i><i class="leaf l4"></i><i class="leaf l5"></i></div>
+    <div class="environment scene-__VISUAL_THEME__" id="fresh-air-environment">
+        <div class="landscape"></div>
+        <div class="light-haze"></div>
+        <div class="rain-layer"></div>
+        <div class="snow-layer"></div>
+        <div class="wind-layer"></div>
+        <div class="foliage left"></div>
+        <div class="foliage right"></div>
+        <div class="depth-vignette"></div>
     </div>
-    """,
+    """.replace("__VISUAL_THEME__", _visual_theme),
     unsafe_allow_html=True,
 )
 
@@ -917,6 +723,7 @@ def make_fallback_mission(goal):
     mission["goal"] = goal
     mission.setdefault("activity", mission.get("title", goal))
     mission.setdefault("alternative", "If this is not practical today, notice nature from a doorway or window for five minutes.")
+    mission.setdefault("visual_theme", "forest")
     return mission
 
 
@@ -955,6 +762,7 @@ Rules:
   disturbing wildlife, damaging plants, or approaching unsafe water or roads.
 - Do not claim that an environmental impact has been measured.
 - Keep instructions practical, welcoming, and accessible.
+- Choose a visual_theme that complements the mission and mood: forest for calm woodland, garden for plants/gardening, meadow for open-air sunlight, rain for rainy-day shelter/nature observation, winter for cold/snowy imagery, or coast for a safe coastal scene. Do not imply the user's real local weather; this is an atmospheric visual theme only.
 - Return ONLY valid JSON. Do not use Markdown.
 
 Use exactly this JSON structure:
@@ -969,7 +777,8 @@ Use exactly this JSON structure:
   "points": 20,
   "impact": "A realistic explanation of the possible benefit",
   "activity": "Short activity category/name",
-  "alternative": "A realistic no-cost alternative if the original is impractical"
+  "alternative": "A realistic no-cost alternative if the original is impractical",
+  "visual_theme": "Choose exactly one: forest, garden, meadow, rain, winter, coast"
 }}
 """
 
@@ -1014,12 +823,16 @@ Use exactly this JSON structure:
         mission["goal"] = goal
         mission.setdefault("activity", mission.get("title", goal))
         mission.setdefault("alternative", "If this does not fit today, spend five minutes noticing nature from a safe, accessible place or window.")
+        allowed_themes = {"forest", "garden", "meadow", "rain", "winter", "coast"}
+        theme = str(mission.get("visual_theme", "forest")).strip().lower()
+        mission["visual_theme"] = theme if theme in allowed_themes else "forest"
         return mission, True
 
     except Exception:
         mission = make_fallback_mission(goal)
         mission.setdefault("activity", mission.get("title", goal))
         mission.setdefault("alternative", "If this does not fit today, observe the sky, a plant, or natural light from a safe indoor spot for five minutes.")
+        mission.setdefault("visual_theme", "forest")
         return mission, False
 
 async def run_temporal_mission(preferences):
