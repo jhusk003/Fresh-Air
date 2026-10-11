@@ -717,6 +717,24 @@ st.markdown(
     unsafe_allow_html=True,
 )
 
+# Distinct animated promise panel at the top of the experience.
+st.markdown("""
+<div class="promise-panel">
+  <div class="promise-kicker">OUR PROMISE</div>
+  <div class="promise-copy">No purchases required. No perfect day required.</div>
+  <div class="promise-subcopy">Fresh Air meets you where you are. Your time, energy, access, and resources matter.</div>
+</div>
+<style>
+.promise-panel { margin: 1rem 0 1.3rem; padding: 1.15rem 1.35rem; border-radius: 18px; border: 1px solid rgba(255,255,255,.25); background: linear-gradient(115deg,rgba(25,105,92,.92),rgba(55,91,138,.92),rgba(119,81,137,.92)); background-size: 220% 220%; animation: promiseShift 12s ease infinite; box-shadow: 0 10px 30px rgba(0,0,0,.16); }
+.promise-kicker { font-size:.72rem; letter-spacing:.18em; font-weight:800; color:#d8ffe9; }
+.promise-copy { font-size:1.2rem; font-weight:800; margin:.25rem 0; color:#fff; }
+.promise-subcopy { color:#edf8f5; font-size:.93rem; }
+@keyframes promiseShift { 0%,100% { background-position:0% 50%; } 50% { background-position:100% 50%; } }
+@media (prefers-reduced-motion: reduce) { .promise-panel { animation:none; } }
+</style>
+""", unsafe_allow_html=True)
+
+
 # =========================================================
 # SESSION STATE
 # =========================================================
@@ -1150,22 +1168,6 @@ st.markdown(
     unsafe_allow_html=True,
 )
 
-# Distinct animated promise panel at the top of the experience.
-st.markdown("""
-<div class="promise-panel">
-  <div class="promise-kicker">OUR PROMISE</div>
-  <div class="promise-copy">No purchases required. No perfect day required.</div>
-  <div class="promise-subcopy">Fresh Air meets you where you are. Your time, energy, access, and resources matter.</div>
-</div>
-<style>
-.promise-panel { margin: 1rem 0 1.3rem; padding: 1.15rem 1.35rem; border-radius: 18px; border: 1px solid rgba(255,255,255,.25); background: linear-gradient(115deg,rgba(25,105,92,.92),rgba(55,91,138,.92),rgba(119,81,137,.92)); background-size: 220% 220%; animation: promiseShift 12s ease infinite; box-shadow: 0 10px 30px rgba(0,0,0,.16); }
-.promise-kicker { font-size:.72rem; letter-spacing:.18em; font-weight:800; color:#d8ffe9; }
-.promise-copy { font-size:1.2rem; font-weight:800; margin:.25rem 0; color:#fff; }
-.promise-subcopy { color:#edf8f5; font-size:.93rem; }
-@keyframes promiseShift { 0%,100% { background-position:0% 50%; } 50% { background-position:100% 50%; } }
-@media (prefers-reduced-motion: reduce) { .promise-panel { animation:none; } }
-</style>
-""", unsafe_allow_html=True)
 
 # =========================================================
 # PROGRESS METRICS
