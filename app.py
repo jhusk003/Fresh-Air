@@ -1,6 +1,7 @@
 import asyncio
 import json
 import os
+import html
 import random
 import requests
 import uuid
@@ -11,10 +12,29 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
+
+def get_setting(name, default=""):
+    """Read Streamlit Cloud Secrets first, then local environment variables."""
+    try:
+        value = st.secrets.get(name)
+        if value not in (None, ""):
+            return str(value)
+    except Exception:
+        # Local development may not have a Streamlit secrets.toml file.
+        pass
+    value = os.getenv(name)
+    return str(value) if value not in (None, "") else default
+
+
 def find_outdoor_destinations(location, minutes):
     """Search for real outdoor places using SerpApi."""
+    location = " ".join(str(location or "").split()).strip()
+    if not location:
+        raise ValueError("Enter a city or neighborhood to search.")
+    if len(location) > 120:
+        raise ValueError("Please keep the location under 120 characters.")
 
-    api_key = os.getenv("SERPAPI_API_KEY")
+    api_key = get_setting("SERPAPI_API_KEY")
 
     if not api_key:
         raise ValueError(
@@ -37,7 +57,7 @@ def find_outdoor_destinations(location, minutes):
     response = requests.get(
         "https://serpapi.com/search.json",
         params=params,
-        timeout=30,
+        timeout=(5, 25),
     )
 
     if not response.ok:
@@ -58,8 +78,12 @@ def find_outdoor_destinations(location, minutes):
 
 def generate_mission_audio(text):
     """Convert mission text into speech with ElevenLabs."""
+    text = " ".join(str(text or "").split()).strip()
+    if not text:
+        raise ValueError("There is no mission text to narrate.")
+    text = text[:4500]
 
-    api_key = os.getenv("ELEVENLABS_API_KEY")
+    api_key = get_setting("ELEVENLABS_API_KEY")
 
     if not api_key:
         raise ValueError(
@@ -89,7 +113,7 @@ def generate_mission_audio(text):
         url,
         headers=headers,
         json=payload,
-        timeout=60,
+        timeout=(5, 60),
     )
 
     if not response.ok:
@@ -151,7 +175,7 @@ with st.sidebar:
     st.header("⚙️ Mission Settings")
     selected_model = st.selectbox(
         "Ollama model",
-        options=[os.getenv("OLLAMA_MODEL", "llama3.2:1b"), "llama3.2:1b", "gemma2:2b"],
+        options=list(dict.fromkeys([get_setting("OLLAMA_MODEL", "llama3.2:1b"), "llama3.2:1b", "gemma2:2b"])),
         index=0,
         help="Choose a model available on the Ollama server configured for this deployment.",
     )
@@ -162,9 +186,9 @@ with st.sidebar:
     )
 
 MODEL = selected_model
-OLLAMA_BASE_URL = os.getenv("OLLAMA_URL", "http://localhost:11434").rstrip("/")
+OLLAMA_BASE_URL = get_setting("OLLAMA_URL", "http://localhost:11434").rstrip("/")
 OLLAMA_URL = OLLAMA_BASE_URL if OLLAMA_BASE_URL.endswith("/api/generate") else f"{OLLAMA_BASE_URL}/api/generate"
-DEFAULT_MODEL = os.getenv("OLLAMA_MODEL", "llama3.2:1b")
+DEFAULT_MODEL = get_setting("OLLAMA_MODEL", "llama3.2:1b")
 
 # =========================================================
 # ANIMATED ENVIRONMENTAL BACKGROUND
@@ -763,7 +787,79 @@ def get_disliked_activities():
     }
 
 
+def _clean_text(value, fallback, max_length=700):
+    """Normalize a generated field to bounded plain text."""
+    if not isinstance(value, str):
+        return fallback
+    value = " ".join(value.replace("\x00", "").split()).strip()
+    return value[:max_length] if value else fallback
+
+
+def validate_mission(candidate, goal):
+    """Validate and normalize a model response before rendering or scoring it."""
+    if not isinstance(candidate, dict):
+        raise ValueError("The model response was not a JSON object.")
+
+    title = _clean_text(candidate.get("title"), "A Small Nature Reset", 120)
+    description = _clean_text(
+        candidate.get("description"),
+        "Take a few minutes to notice the natural details around you.",
+        600,
+    )
+    impact = _clean_text(
+        candidate.get("impact"),
+        "This activity offers a small opportunity to notice and appreciate your surroundings.",
+        500,
+    )
+
+    raw_steps = candidate.get("steps")
+    if not isinstance(raw_steps, list):
+        raise ValueError("Mission steps must be a list.")
+    steps = []
+    for item in raw_steps:
+        if isinstance(item, dict):
+            item = item.get("text", "")
+        step = _clean_text(item, "", 240)
+        if step:
+            steps.append(step)
+        if len(steps) >= 5:
+            break
+    if len(steps) < 2:
+        raise ValueError("A mission must contain at least two useful steps.")
+
+    try:
+        points = int(candidate.get("points", 20))
+    except (TypeError, ValueError, OverflowError):
+        points = 20
+    points = max(5, min(50, points))
+
+    allowed_themes = {"forest", "garden", "meadow", "rain", "winter", "coast"}
+    theme = _clean_text(candidate.get("visual_theme", "forest"), "forest", 20).lower()
+    if theme not in allowed_themes:
+        theme = "forest"
+
+    activity = _clean_text(candidate.get("activity"), title, 100)
+    alternative = _clean_text(
+        candidate.get("alternative"),
+        "If this is not practical today, notice nature from a safe doorway or window for five minutes.",
+        400,
+    )
+
+    return {
+        "title": title,
+        "description": description,
+        "steps": steps,
+        "points": points,
+        "impact": impact,
+        "activity": activity,
+        "alternative": alternative,
+        "visual_theme": theme,
+        "goal": _clean_text(goal, "General", 100),
+    }
+
+
 def generate_mission(mood, energy, minutes, goal, access, interests="Any activity", resources="No special resources", accessibility="No additional needs"):
+    """Generate a personalized mission, safely falling back when AI is unavailable."""
     disliked = get_disliked_activities()
     prompt = f"""
 You create safe, realistic, adaptive nature and wellbeing missions for an app called Fresh Air.
@@ -785,34 +881,28 @@ Rules:
 - Include a practical alternative if the first idea is blocked by weather, access, energy, time, or missing supplies.
 - Match the activity to stated interests, resources, and accessibility needs.
 - If the user cannot go outside, provide a genuine indoor/doorway alternative rather than pressuring them.
-- Never recommend trespassing, entering dangerous areas, touching hazardous waste,
-  disturbing wildlife, damaging plants, or approaching unsafe water or roads.
+- Never recommend trespassing, entering dangerous areas, touching hazardous waste, disturbing wildlife, damaging plants, or approaching unsafe water or roads.
 - Do not claim that an environmental impact has been measured.
 - Keep instructions practical, welcoming, and accessible.
-- Choose a visual_theme that complements the mission and mood: forest for calm woodland, garden for plants/gardening, meadow for open-air sunlight, rain for rainy-day shelter/nature observation, winter for cold/snowy imagery, or coast for a safe coastal scene. Do not imply the user's real local weather; this is an atmospheric visual theme only.
-- Return ONLY valid JSON. Do not use Markdown.
+- Choose visual_theme from: forest, garden, meadow, rain, winter, coast. It is an atmospheric theme only, not a claim about local weather.
+- Return ONLY valid JSON, without Markdown.
 
 Use exactly this JSON structure:
 {{
   "title": "Short mission title",
   "description": "Two short sentences explaining the mission",
-  "steps": [
-    "First step",
-    "Second step",
-    "Third step"
-  ],
+  "steps": ["First step", "Second step", "Third step"],
   "points": 20,
   "impact": "A realistic explanation of the possible benefit",
   "activity": "Short activity category/name",
   "alternative": "A realistic no-cost alternative if the original is impractical",
-  "visual_theme": "Choose exactly one: forest, garden, meadow, rain, winter, coast"
+  "visual_theme": "forest"
 }}
 """
 
     if disliked:
         prompt += (
-            "\nAvoid these activities where possible because they were "
-            "previously disliked: "
+            "\nAvoid these activities where possible because they were previously disliked: "
             + ", ".join(sorted(disliked))
             + ". Suggest a different activity instead."
         )
@@ -825,42 +915,29 @@ Use exactly this JSON structure:
                 "prompt": prompt,
                 "stream": False,
                 "format": "json",
-                "options": {"temperature": 0.8},
+                "options": {"temperature": 0.7},
             },
-            timeout=90,
+            timeout=(5, 75),
         )
         response.raise_for_status()
-
         result = response.json()
-        raw_text = result.get("response", "")
-        mission = json.loads(raw_text)
-
-        if not all(
-            key in mission
-            for key in ["title", "description", "steps", "points", "impact"]
-        ):
-            raise ValueError("The AI response is missing required fields.")
-
-        if not isinstance(mission["steps"], list):
-            raise ValueError("Mission steps must be a list.")
-
-        mission["points"] = max(
-            5, min(50, int(mission["points"]))
-        )
-        mission["goal"] = goal
-        mission.setdefault("activity", mission.get("title", goal))
-        mission.setdefault("alternative", "If this does not fit today, spend five minutes noticing nature from a safe, accessible place or window.")
-        allowed_themes = {"forest", "garden", "meadow", "rain", "winter", "coast"}
-        theme = str(mission.get("visual_theme", "forest")).strip().lower()
-        mission["visual_theme"] = theme if theme in allowed_themes else "forest"
+        raw_text = result.get("response", "") if isinstance(result, dict) else ""
+        if not isinstance(raw_text, str) or not raw_text.strip():
+            raise ValueError("The model returned an empty response.")
+        candidate = json.loads(raw_text)
+        mission = validate_mission(candidate, goal)
+        st.session_state["mission_generation_note"] = "ai"
         return mission, True
 
-    except Exception:
+    except (requests.RequestException, ValueError, TypeError, KeyError, json.JSONDecodeError):
+        st.session_state["mission_generation_note"] = "fallback"
         mission = make_fallback_mission(goal)
-        mission.setdefault("activity", mission.get("title", goal))
-        mission.setdefault("alternative", "If this does not fit today, observe the sky, a plant, or natural light from a safe indoor spot for five minutes.")
-        mission.setdefault("visual_theme", "forest")
-        return mission, False
+        return validate_mission(mission, goal), False
+    except Exception:
+        # Keep the app available if an unexpected model/server issue occurs.
+        st.session_state["mission_generation_note"] = "fallback"
+        mission = make_fallback_mission(goal)
+        return validate_mission(mission, goal), False
 
 async def run_temporal_mission(preferences):
     """Run mission generation and validation through a local Temporal worker."""
@@ -868,14 +945,14 @@ async def run_temporal_mission(preferences):
     from temporal_workflow import MoodDividendWorkflow
 
     client = await asyncio.wait_for(
-        Client.connect(os.getenv("TEMPORAL_ADDRESS", "localhost:7233")),
+        Client.connect(get_setting("TEMPORAL_ADDRESS", "localhost:7233")),
         timeout=4,
     )
     return await client.execute_workflow(
         MoodDividendWorkflow.run,
         preferences,
         id=f"mood-mission-{uuid.uuid4()}",
-        task_queue=os.getenv("TEMPORAL_TASK_QUEUE", "fresh-air-queue"),
+        task_queue=get_setting("TEMPORAL_TASK_QUEUE", "fresh-air-queue"),
     )
 
 
@@ -1049,8 +1126,8 @@ st.markdown(
     f"""
     <div class="glass-card" style="margin:.9rem 0 1rem; border-left:4px solid #a8f0ce;">
         <div class="metric-label">🌿 A LITTLE NATURE FACT</div>
-        <div style="font-size:1.05rem;font-weight:800;margin:.35rem 0;">{fact_title}</div>
-        <div style="line-height:1.55;">{fact_body}</div>
+        <div style="font-size:1.05rem;font-weight:800;margin:.35rem 0;">{html.escape(str(fact_title))}</div>
+        <div style="line-height:1.55;">{html.escape(str(fact_body))}</div>
     </div>
     """,
     unsafe_allow_html=True,
@@ -1085,14 +1162,14 @@ if st.button("✨ Create My Mission", type="primary", use_container_width=True):
         if use_temporal:
             try:
                 temporal_result = asyncio.run(run_temporal_mission(preferences))
-                mission = temporal_result["mission"]
+                mission = validate_mission(temporal_result.get("mission"), goal)
                 used_ai = bool(temporal_result.get("used_ai", True))
                 st.success("Mission generated and validated through Temporal.")
             except Exception as error:
                 st.warning(
                     "Temporal was unavailable or the workflow failed. "
-                    "Trying direct local Ollama generation instead. "
-                    f"Details: {error}"
+                    "Trying direct AI generation instead. If that is unavailable, "
+                    "Fresh Air will provide a ready-to-go mission."
                 )
 
         if mission is None:
@@ -1155,7 +1232,8 @@ if st.button("🎧 Listen to My Mission"):
 
         except Exception as error:
             st.error(
-                f"Could not generate audio: {error}"
+                "Could not generate audio. Check the ElevenLabs key, service status, "
+                "and account usage limits, then try again."
             )
     else:
         st.warning("Generate a mission before listening.")
@@ -1179,6 +1257,10 @@ if st.session_state.mission:
             "Using a ready-to-go mission right now. Your local AI can be "
             "connected for more personalized missions."
         )
+
+    safe_mission_title = html.escape(str(mission.get("title", "Your mission")))
+    safe_mission_description = html.escape(str(mission.get("description", "")))
+    safe_mission_impact = html.escape(str(mission.get("impact", "")))
 
     st.markdown(
         f"""
@@ -1218,11 +1300,11 @@ if st.session_state.mission:
         </style>
         <div class="mission-rainbow-card">
             <div class="mission-label">YOUR NEXT SMALL WIN</div>
-            <div class="mission-title">{mission["title"]}</div>
-            <div class="mission-description">{mission["description"]}</div>
+            <div class="mission-title">{safe_mission_title}</div>
+            <div class="mission-description">{safe_mission_description}</div>
             <br>
             <div class="mission-label">WHY IT MATTERS</div>
-            <div class="mission-description">{mission["impact"]}</div>
+            <div class="mission-description">{safe_mission_impact}</div>
         </div>
         """,
         unsafe_allow_html=True,
@@ -1231,11 +1313,12 @@ if st.session_state.mission:
     st.markdown("#### Your steps")
 
     for i, step in enumerate(mission["steps"], start=1):
+        safe_step = html.escape(str(step))
         st.markdown(
             f"""
             <div class="step-item">
                 <strong style="color:#a8f0ce;">{i:02d}</strong>
-                &nbsp;&nbsp; {step}
+                &nbsp;&nbsp; {safe_step}
             </div>
             """,
             unsafe_allow_html=True,
@@ -1253,15 +1336,16 @@ if st.session_state.mission:
         ):
             mission_id = st.session_state.current_mission_id or str(uuid.uuid4())
             st.session_state.current_mission_id = mission_id
+            awarded_points = max(5, min(50, int(mission.get("points", 20))))
 
             # Avoid awarding points twice for the same mission ID.
             completed_ids = st.session_state.completed_mission_ids
             if mission_id not in completed_ids:
-                st.session_state.points += mission["points"]
+                st.session_state.points += awarded_points
                 st.session_state.completed.append(
                     {
                         "title": mission["title"],
-                        "points": mission["points"],
+                        "points": awarded_points,
                         "goal": mission.get("goal", "General"),
                     }
                 )
@@ -1272,17 +1356,17 @@ if st.session_state.mission:
                 title=str(mission.get("title", "Outdoor Mission")),
                 activity=str(mission.get("activity", mission.get("goal", mission.get("title", "Outdoor activity")))),
                 preferences=st.session_state.get("last_inputs", {}),
-                points=int(mission.get("points", 0)),
+                points=awarded_points,
                 duration_minutes=int(st.session_state.get("last_inputs", {}).get("minutes", 0)),
             )
             st.session_state.mission_completed = True
             st.success("Mission added to your session journal.")
 
-            st.session_state.last_completed_points = int(mission.get("points", 0))
+            st.session_state.last_completed_points = awarded_points
             st.session_state.last_completed_duration = int(st.session_state.get("last_inputs", {}).get("minutes", 0))
             st.session_state.mission = None
             st.success(
-                f"Mission completed! You earned {mission['points']} points."
+                f"Mission completed! You earned {awarded_points} points."
             )
             st.rerun()
 
@@ -1347,12 +1431,14 @@ if st.session_state.completed:
     )
 
     for item in reversed(st.session_state.completed):
+        safe_completed_title = html.escape(str(item.get("title", "Outdoor Mission")))
+        safe_completed_points = max(0, min(10000, int(item.get("points", 0))))
         st.markdown(
             f"""
             <div class="glass-card"
                  style="padding:0.9rem 1.1rem;">
                 <div style="font-weight:700; color:white;">
-                    ✓ {item["title"]}
+                    ✓ {safe_completed_title}
                 </div>
                 <div style="color:#a8f0ce; font-size:0.85rem;">
                     +{item["points"]} points
@@ -1544,10 +1630,11 @@ if search_destinations:
                         if description:
                             st.write(description)
 
-                        if place_url:
-                            st.markdown(
-                                f"[View destination and verify details]"
-                                f"({place_url})"
+                        if isinstance(place_url, str) and place_url.startswith(("https://", "http://")):
+                            st.link_button(
+                                "View destination and verify details",
+                                place_url,
+                                use_container_width=True,
                             )
 
                         st.caption(
@@ -1557,7 +1644,8 @@ if search_destinations:
 
         except Exception as error:
             st.error(
-                f"Destination search failed: {error}"
+                "Destination search failed. Check the SerpApi key, connection, "
+                "and available search quota, then try again."
             )
             st.info(
                 "Check your internet connection, SerpApi key, "
