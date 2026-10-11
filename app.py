@@ -91,7 +91,7 @@ def generate_mission_audio(text):
             "Check your .env file."
         )
 
-    voice_id = "JBFqnCBsd6RMkjVDRZzb"
+    voice_id = get_setting("ELEVENLABS_VOICE_ID", "JBFqnCBsd6RMkjVDRZzb")
 
     url = (
         f"https://api.elevenlabs.io/v1/"
@@ -184,6 +184,45 @@ with st.sidebar:
         "that must be a reachable hosted Ollama endpoint; localhost refers to the app container. "
         "Audio and destination search use external services only when requested."
     )
+    st.caption(f"**Selected model:** `{selected_model}`")
+    if st.button("🧪 Test selected model", use_container_width=True):
+        _test_base = get_setting("OLLAMA_URL", "http://localhost:11434").rstrip("/")
+        if _test_base.endswith("/api/generate"):
+            _test_base = _test_base[:-len("/api/generate")]
+        try:
+            _test_response = requests.post(
+                f"{_test_base}/api/show",
+                json={"model": selected_model},
+                timeout=(5, 20),
+            )
+            if _test_response.ok:
+                st.session_state["ollama_model_test"] = {
+                    "model": selected_model,
+                    "ok": True,
+                    "message": f"{selected_model} is available on the configured Ollama server.",
+                }
+            else:
+                try:
+                    _test_detail = _test_response.json().get("error", _test_response.text)
+                except Exception:
+                    _test_detail = _test_response.text
+                st.session_state["ollama_model_test"] = {
+                    "model": selected_model,
+                    "ok": False,
+                    "message": str(_test_detail)[:350] or f"Ollama returned HTTP {_test_response.status_code}.",
+                }
+        except requests.RequestException as _test_error:
+            st.session_state["ollama_model_test"] = {
+                "model": selected_model,
+                "ok": False,
+                "message": str(_test_error)[:350],
+            }
+    _model_test = st.session_state.get("ollama_model_test")
+    if _model_test and _model_test.get("model") == selected_model:
+        if _model_test.get("ok"):
+            st.success(_model_test.get("message", "Model available."))
+        else:
+            st.error(f"Model test failed: {_model_test.get('message', 'Unknown Ollama error')}")
 
 MODEL = selected_model
 OLLAMA_BASE_URL = get_setting("OLLAMA_URL", "http://localhost:11434").rstrip("/")
@@ -939,15 +978,24 @@ Use exactly this JSON structure:
         candidate = json.loads(raw_text)
         mission = validate_mission(candidate, goal)
         st.session_state["mission_generation_note"] = "ai"
+        st.session_state["mission_generation_model"] = MODEL
+        st.session_state["mission_generation_source"] = "Direct Ollama"
+        st.session_state.pop("mission_generation_error", None)
         return mission, True
 
-    except (requests.RequestException, ValueError, TypeError, KeyError, json.JSONDecodeError):
+    except (requests.RequestException, ValueError, TypeError, KeyError, json.JSONDecodeError) as error:
         st.session_state["mission_generation_note"] = "fallback"
+        st.session_state["mission_generation_model"] = MODEL
+        st.session_state["mission_generation_source"] = "Fallback"
+        st.session_state["mission_generation_error"] = str(error)[:350]
         mission = make_fallback_mission(goal)
         return validate_mission(mission, goal), False
-    except Exception:
+    except Exception as error:
         # Keep the app available if an unexpected model/server issue occurs.
         st.session_state["mission_generation_note"] = "fallback"
+        st.session_state["mission_generation_model"] = MODEL
+        st.session_state["mission_generation_source"] = "Fallback"
+        st.session_state["mission_generation_error"] = str(error)[:350]
         mission = make_fallback_mission(goal)
         return validate_mission(mission, goal), False
 
@@ -1347,6 +1395,10 @@ if st.button("✨ Create My Mission", type="primary", use_container_width=True):
                     mission, st.session_state.get("selected_destination"), f"{access}; {accessibility}"
                 )
                 used_ai = bool(temporal_result.get("used_ai", True))
+                st.session_state["mission_generation_source"] = "Temporal workflow"
+                st.session_state["mission_generation_model"] = preferences["model"]
+                if used_ai:
+                    st.session_state.pop("mission_generation_error", None)
                 st.success("Mission generated and validated through Temporal.")
             except Exception as error:
                 st.warning(
@@ -1443,10 +1495,28 @@ if st.session_state.mission:
         unsafe_allow_html=True,
     )
 
-    if not st.session_state.get("mission_used_ai", False):
+    if st.session_state.get("mission_used_ai", False):
+        _actual_model = st.session_state.get("mission_generation_model", MODEL)
+        _generation_source = st.session_state.get("mission_generation_source", "Ollama")
+        if _generation_source == "Direct Ollama":
+            st.success(f"AI mission generated successfully with Ollama model: {_actual_model}")
+            if "gemma" in str(_actual_model).lower():
+                st.info("Confirmed: this mission was generated directly by the selected Gemma model.")
+        else:
+            st.success(f"AI mission generation reported by {_generation_source}. Selected model: {_actual_model}")
+            if "gemma" in str(_actual_model).lower():
+                st.info("Gemma is the selected model for this workflow. For direct confirmation, disable Temporal and generate a mission with Gemma selected.")
+    else:
+        st.warning(
+            f"A ready-to-go fallback mission was used; the selected AI model ({st.session_state.get('mission_generation_model', MODEL)}) did not successfully generate this mission."
+        )
+        _generation_error = st.session_state.get("mission_generation_error")
+        if _generation_error:
+            with st.expander("Why the AI model did not run"):
+                st.code(_generation_error)
         st.caption(
-            "Using a ready-to-go mission right now. Your local AI can be "
-            "connected for more personalized missions."
+            "Check that the selected model is installed on the configured Ollama server, "
+            "that OLLAMA_URL is reachable, and that the model can return valid JSON."
         )
 
     safe_mission_title = html.escape(str(mission.get("title", "Your mission")))
