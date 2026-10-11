@@ -4,17 +4,10 @@ import os
 import random
 import requests
 import uuid
-from html import escape
-from datetime import datetime, timezone, timedelta
-
-import os
-import certifi
-import streamlit as st
-from pymongo import MongoClient
+from datetime import datetime, timezone
 
 import streamlit as st
 from dotenv import load_dotenv
-from pymongo import MongoClient, DESCENDING
 
 load_dotenv()
 
@@ -107,77 +100,41 @@ def generate_mission_audio(text):
 
     return response.content
 
-@st.cache_resource
-def get_mission_collection():
-    """Connect to Atlas and return the mission journal collection."""
-
-uri = os.getenv("MONGODB_URI")
-
-if not uri:
-    st.error("MongoDB is not connected. Please configure MONGODB_URI in Streamlit Secrets.")
-    st.stop()
-
-try:
-    client = MongoClient(
-        uri,
-        tls=True,
-        tlsCAFile=certifi.where(),
-        serverSelectionTimeoutMS=10000,
-        connectTimeoutMS=10000,
-    )
-
-    # Verify that MongoDB is reachable
-    client.admin.command("ping")
-
-    db_name = os.getenv("MONGODB_DATABASE", "fresh_air")
-    collection_name = os.getenv("MONGODB_COLLECTION", "mission_journal")
-
-    db = client[db_name]
-    collection = db[collection_name]
-
-except Exception as e:
-    st.error(f"MongoDB connection failed: {e}")
-    st.stop()
-
 def save_completed_mission(
     mission_id, title, activity, feedback=None, preferences=None,
     points=0, duration_minutes=0,
 ):
-    """Save a completed mission to the persistent journal."""
+    """Save a completed mission to this Streamlit session's local journal.
 
-    collection = get_mission_collection()
-
-    collection.update_one(
-        {"mission_id": mission_id},
-        {
-            "$set": {
-                "title": title,
-                "activity": activity,
-                "completed_at": datetime.now(timezone.utc),
-                "feedback": feedback,
-                "preferences": preferences or {},
-                "points": int(points),
-                "duration_minutes": int(duration_minutes),
-                "status": "completed",
-            }
-        },
-        upsert=True,
-    )
+    This intentionally uses no external database. Entries are available during
+    the current Streamlit session and are not permanent across new sessions.
+    """
+    entry = {
+        "mission_id": mission_id,
+        "title": title,
+        "activity": activity,
+        "completed_at": datetime.now(timezone.utc),
+        "feedback": feedback,
+        "preferences": preferences or {},
+        "points": int(points),
+        "duration_minutes": int(duration_minutes),
+        "status": "completed",
+    }
+    journal = st.session_state.setdefault("journal", [])
+    for index, existing in enumerate(journal):
+        if existing.get("mission_id") == mission_id:
+            journal[index] = entry
+            break
+    else:
+        journal.insert(0, entry)
 
 
 def get_mission_history(limit=20):
-    """Return the most recent completed missions."""
+    """Return recent completed missions from the current session."""
+    journal = st.session_state.get("journal", [])
+    completed = [entry for entry in journal if entry.get("status") == "completed"]
+    return completed[:limit]
 
-    collection = get_mission_collection()
-
-    return list(
-        collection.find(
-            {"status": "completed"},
-            {"_id": 0},
-        )
-        .sort("completed_at", DESCENDING)
-        .limit(limit)
-    )
 
 # =========================================================
 # FRESH AIR
@@ -770,6 +727,9 @@ if "points" not in st.session_state:
 if "completed" not in st.session_state:
     st.session_state.completed = []
 
+if "journal" not in st.session_state:
+    st.session_state.journal = []
+
 if "completed_mission_ids" not in st.session_state:
     st.session_state.completed_mission_ids = []
 
@@ -870,20 +830,12 @@ def make_fallback_mission(goal):
 
 
 def get_disliked_activities():
-    """Return previously disliked activities from the journal, if available."""
-    try:
-        entries = get_mission_collection().find(
-            {"feedback": "Didn't enjoy it"},
-            {"activity": 1, "_id": 0},
-        )
-        return {
-            entry["activity"]
-            for entry in entries
-            if entry.get("activity")
-        }
-    except Exception:
-        # The app should still work if cloud storage is unavailable.
-        return set()
+    """Return activities disliked earlier in this Streamlit session."""
+    return {
+        str(entry.get("activity"))
+        for entry in st.session_state.get("journal", [])
+        if entry.get("feedback") == "Didn't enjoy it" and entry.get("activity")
+    }
 
 
 def generate_mission(mood, energy, minutes, goal, access, interests="Any activity", resources="No special resources", accessibility="No additional needs"):
@@ -932,7 +884,7 @@ Use exactly this JSON structure:
 
     if disliked:
         prompt += (
-            "\\nAvoid these activities where possible because they were "
+            "\nAvoid these activities where possible because they were "
             "previously disliked: "
             + ", ".join(sorted(disliked))
             + ". Suggest a different activity instead."
@@ -1088,21 +1040,11 @@ st.markdown("""
 # PROGRESS METRICS
 # =========================================================
 
-persistent_total = 0
-persistent_minutes = 0
-persistent_points = 0
-try:
-    _progress_collection = get_mission_collection()
-    persistent_total = _progress_collection.count_documents({"status": "completed"})
-    persistent_points = int(_progress_collection.aggregate([{ "$match": {"status": "completed"}}, {"$group": {"_id": None, "points": {"$sum": "$points"}}}]).next().get("points", 0)) if persistent_total else 0
-    _duration_pipeline = [{"$match": {"status": "completed"}}, {"$group": {"_id": None, "minutes": {"$sum": "$duration_minutes"}}}]
-    _duration_result = list(_progress_collection.aggregate(_duration_pipeline))
-    if _duration_result:
-        persistent_minutes = int(_duration_result[0].get("minutes", 0))
-except Exception:
-    persistent_total = len(st.session_state.completed)
-    persistent_points = int(st.session_state.points)
-    persistent_minutes = 0
+# Session-only progress: no MongoDB or external journal connection.
+_session_journal = st.session_state.get("journal", [])
+persistent_total = sum(1 for entry in _session_journal if entry.get("status") == "completed")
+persistent_points = sum(int(entry.get("points", 0)) for entry in _session_journal if entry.get("status") == "completed")
+persistent_minutes = sum(int(entry.get("duration_minutes", 0)) for entry in _session_journal if entry.get("status") == "completed")
 
 metric1, metric2, metric3 = st.columns(3)
 
@@ -1367,20 +1309,16 @@ if st.session_state.mission:
                 )
                 completed_ids.append(mission_id)
 
-            try:
-                save_completed_mission(
-                    mission_id=mission_id,
-                    title=str(mission.get("title", "Outdoor Mission")),
-                    activity=str(mission.get("goal", mission.get("title", "Outdoor activity"))),
-                )
-                st.session_state.mission_completed = True
-                st.success("Mission saved to your cloud journal.")
-            except Exception as error:
-                st.warning(
-                    "Your session points were updated, but the cloud journal "
-                    "could not save this mission. "
-                    f"Details: {error}"
-                )
+            save_completed_mission(
+                mission_id=mission_id,
+                title=str(mission.get("title", "Outdoor Mission")),
+                activity=str(mission.get("activity", mission.get("goal", mission.get("title", "Outdoor activity")))),
+                preferences=st.session_state.get("last_inputs", {}),
+                points=int(mission.get("points", 0)),
+                duration_minutes=int(st.session_state.get("last_inputs", {}).get("minutes", 0)),
+            )
+            st.session_state.mission_completed = True
+            st.success("Mission added to your session journal.")
 
             st.session_state.last_completed_points = int(mission.get("points", 0))
             st.session_state.last_completed_duration = int(st.session_state.get("last_inputs", {}).get("minutes", 0))
@@ -1464,7 +1402,7 @@ if st.session_state.completed:
         )
 
 # =========================================================
-# CLOUD MISSION JOURNAL
+# SESSION MISSION JOURNAL (NO CLOUD DATABASE)
 # =========================================================
 
 st.markdown("---")
@@ -1473,75 +1411,68 @@ st.markdown(
     unsafe_allow_html=True,
 )
 st.caption(
-    "Completed missions and optional feedback are stored in MongoDB Atlas "
-    "when the database is configured and reachable."
+    "Your completed missions and optional feedback are kept in this active "
+    "Streamlit session only. They are not uploaded to a database and may not "
+    "be available after the session ends."
 )
 
-try:
-    journal = get_mission_history(limit=30)
-    total_saved = get_mission_collection().count_documents(
-        {"status": "completed"}
+journal = get_mission_history(limit=30)
+st.metric("Missions in this session's journal", len(st.session_state.get("journal", [])))
+
+if not journal:
+    st.info("Your session journal is empty. Complete a mission to begin.")
+else:
+    saved_interests = [
+        entry.get("preferences", {}).get("interests")
+        for entry in journal
+        if entry.get("preferences", {}).get("interests")
+        and entry.get("preferences", {}).get("interests") != "Any activity"
+    ]
+    saved_goals = [
+        entry.get("preferences", {}).get("goal")
+        for entry in journal
+        if entry.get("preferences", {}).get("goal")
+    ]
+    if saved_interests or saved_goals:
+        from collections import Counter
+        preference_col, goal_col = st.columns(2)
+        if saved_interests:
+            with preference_col:
+                st.caption("Most common activity preference")
+                st.write(Counter(saved_interests).most_common(1)[0][0])
+        if saved_goals:
+            with goal_col:
+                st.caption("Most common mission goal")
+                st.write(Counter(saved_goals).most_common(1)[0][0])
+
+    for entry in journal:
+        with st.container(border=True):
+            st.subheader(entry.get("title", "Outdoor Mission"))
+            st.caption("Activity: " + str(entry.get("activity", "Outdoor activity")))
+            completed_at = entry.get("completed_at")
+            if completed_at:
+                if getattr(completed_at, "tzinfo", None) is not None:
+                    completed_label = completed_at.strftime("%b %d, %Y at %I:%M %p UTC")
+                else:
+                    completed_label = completed_at.strftime("%b %d, %Y at %I:%M %p")
+                st.caption("Completed: " + completed_label)
+            if entry.get("feedback"):
+                st.write("Your feedback: " + str(entry["feedback"]))
+
+if st.session_state.get("mission_completed") and st.session_state.get("current_mission_id"):
+    feedback_choice = st.radio(
+        "How did you feel about your last completed mission?",
+        ["No feedback", "Enjoyed it", "It was okay", "Didn't enjoy it"],
+        key="journal_feedback_choice",
     )
-    st.metric("Missions saved in journal", total_saved)
-
-    if not journal:
-        st.info("Your cloud journal is empty. Complete a mission to begin.")
-    else:
-        saved_interests = [entry.get("preferences", {}).get("interests") for entry in journal if entry.get("preferences", {}).get("interests") and entry.get("preferences", {}).get("interests") != "Any activity"]
-        saved_goals = [entry.get("preferences", {}).get("goal") for entry in journal if entry.get("preferences", {}).get("goal")]
-        if saved_interests or saved_goals:
-            from collections import Counter
-            preference_col, goal_col = st.columns(2)
-            if saved_interests:
-                with preference_col:
-                    st.caption("Most common activity preference")
-                    st.write(Counter(saved_interests).most_common(1)[0][0])
-            if saved_goals:
-                with goal_col:
-                    st.caption("Most common mission goal")
-                    st.write(Counter(saved_goals).most_common(1)[0][0])
-        for entry in journal:
-            with st.container(border=True):
-                st.subheader(entry.get("title", "Outdoor Mission"))
-                st.caption("Activity: " + str(entry.get("activity", "Outdoor activity")))
-                completed_at = entry.get("completed_at")
-                if completed_at:
-                    st.caption(
-                        "Completed: "
-                        + completed_at.strftime("%b %d, %Y at %I:%M %p UTC")
-                    )
-                if entry.get("feedback"):
-                    st.write("Your feedback: " + str(entry["feedback"]))
-
-    if st.session_state.get("mission_completed"):
+    if st.button("Save Mission Feedback"):
         current_id = st.session_state.get("current_mission_id")
-        feedback_choice = st.radio(
-            "How did you feel about your last completed mission?",
-            ["No feedback", "Enjoyed it", "It was okay", "Didn't enjoy it"],
-            key="journal_feedback_choice",
-        )
-        if st.button("Save Mission Feedback"):
-            try:
-                get_mission_collection().update_one(
-                    {"mission_id": current_id},
-                    {"$set": {
-                        "feedback": (
-                            None if feedback_choice == "No feedback"
-                            else feedback_choice
-                        )
-                    }},
-                )
-                st.success("Feedback saved.")
-                st.rerun()
-            except Exception as error:
-                st.error(f"Could not save feedback: {error}")
-
-except Exception as error:
-    st.info(
-        "Cloud journal is not connected. Add a valid MONGODB_URI to .env "
-        "and check Atlas network access. "
-        f"Details: {error}"
-    )
+        for entry in st.session_state.get("journal", []):
+            if entry.get("mission_id") == current_id:
+                entry["feedback"] = None if feedback_choice == "No feedback" else feedback_choice
+                break
+        st.success("Feedback saved to this session's journal.")
+        st.rerun()
 
 # =========================================================
 # FOOTER
@@ -1561,7 +1492,7 @@ st.markdown(
         <p style="font-size:0.72rem; opacity:0.8;">
             Fresh Air is a prototype for outdoor engagement and community action.
             It does not diagnose or treat mental health conditions. Mission ideas use Ollama;
-            the journal uses MongoDB Atlas; optional voice and place search use ElevenLabs and SerpApi.
+            mission history is session-only; optional voice and place search use ElevenLabs and SerpApi.
         </p>
     </div>
     """,
