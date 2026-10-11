@@ -236,24 +236,34 @@ st.markdown(
     .environment.scene-winter { --scene-image: url("https://images.unsplash.com/photo-1418985991508-e47386d96a71?auto=format&fit=crop&w=2400&q=85"); }
     .environment.scene-coast { --scene-image: url("https://images.unsplash.com/photo-1500375592092-40eb2168fd21?auto=format&fit=crop&w=2400&q=85"); }
 
-    /* Slow camera drift adds depth without making the page feel busy. */
-    .environment .landscape {
-        position: absolute;
-        inset: -3%;
-        background-image: var(--scene-image);
-        background-position: center 48%;
-        background-size: cover;
-        transform: scale(1.06);
-        filter: saturate(.88) contrast(1.04);
-        animation: landscapeDrift 42s ease-in-out infinite alternate;
-        will-change: transform;
+    /* A cinematic scene carousel: photographic locations crossfade every six seconds. */
+    .environment .scene-stack { position:absolute; inset:-4%; overflow:hidden; }
+    .environment .scene-slide {
+        position:absolute; inset:0; background-size:cover; background-position:center 48%;
+        opacity:0; transform:scale(1.04); filter:saturate(.96) contrast(1.04);
+        animation: sceneCrossfade 36s ease-in-out infinite, landscapeDrift 24s ease-in-out infinite alternate;
+        will-change:opacity,transform;
     }
-    .environment .landscape::before {
-        content: "";
-        position: absolute;
-        inset: 0;
-        background: linear-gradient(180deg, rgba(10, 29, 29, .08) 0%, rgba(8, 28, 25, .08) 35%, rgba(4, 18, 17, .56) 100%);
+    .environment .scene-slide::after {
+        content:""; position:absolute; inset:0;
+        background:linear-gradient(180deg,rgba(10,29,29,.04) 0%,rgba(8,28,25,.12) 38%,rgba(4,18,17,.62) 100%);
     }
+    .environment .scene-slide.primary { background-image:var(--scene-image); animation-delay:0s, -5s; }
+    .environment .scene-slide.garden { background-image:url("https://images.unsplash.com/photo-1416879595882-3373a0480b5b?auto=format&fit=crop&w=2400&q=85"); animation-delay:-30s,-11s; }
+    .environment .scene-slide.meadow { background-image:url("https://images.unsplash.com/photo-1500530855697-b586d89ba3ee?auto=format&fit=crop&w=2400&q=85"); animation-delay:-24s,-8s; }
+    .environment .scene-slide.rain { background-image:url("https://images.unsplash.com/photo-1511497584788-876760111969?auto=format&fit=crop&w=2400&q=85"); animation-delay:-18s,-13s; }
+    .environment .scene-slide.winter { background-image:url("https://images.unsplash.com/photo-1418985991508-e47386d96a71?auto=format&fit=crop&w=2400&q=85"); animation-delay:-12s,-4s; }
+    .environment .scene-slide.coast { background-image:url("https://images.unsplash.com/photo-1500375592092-40eb2168fd21?auto=format&fit=crop&w=2400&q=85"); animation-delay:-6s,-10s; }
+    @keyframes sceneCrossfade {
+        0%, 15% { opacity:1; }
+        19%, 96% { opacity:0; }
+        100% { opacity:1; }
+    }
+    .environment .scene-slide.garden { animation-name:sceneCrossfade, landscapeDrift; }
+    .environment .scene-slide.meadow { animation-name:sceneCrossfade, landscapeDrift; }
+    .environment .scene-slide.rain { animation-name:sceneCrossfade, landscapeDrift; }
+    .environment .scene-slide.winter { animation-name:sceneCrossfade, landscapeDrift; }
+    .environment .scene-slide.coast { animation-name:sceneCrossfade, landscapeDrift; }
     .environment .light-haze {
         position: absolute;
         inset: -20%;
@@ -314,8 +324,16 @@ st.markdown(
         mask-image: linear-gradient(to top, #000 0%, #000 45%, transparent 100%);
         animation: foliageSway 15s ease-in-out infinite alternate;
     }
-    .environment .foliage.left { left: -9%; transform-origin: bottom left; }
-    .environment .foliage.right { right: -9%; transform: scaleX(-1); animation-delay: -7s; }
+    .environment .foliage.left { left: -9%; transform-origin: bottom left; animation: foliageSway 7.5s ease-in-out infinite alternate; }
+    .environment .foliage.right { right: -9%; transform: scaleX(-1); transform-origin: bottom right; animation: foliageSway 9s ease-in-out infinite alternate-reverse; animation-delay: -3s; }
+    /* Soft moving light flecks mimic wind through a canopy, rather than floating geometric shapes. */
+    .environment .canopy-light {
+        position:absolute; inset:-12%; opacity:.2; mix-blend-mode:screen;
+        background:radial-gradient(ellipse at 20% 24%,rgba(246,255,213,.22),transparent 13%),
+                   radial-gradient(ellipse at 76% 36%,rgba(197,255,222,.16),transparent 17%),
+                   radial-gradient(ellipse at 54% 8%,rgba(255,238,186,.17),transparent 19%);
+        animation: canopyMove 19s ease-in-out infinite alternate; pointer-events:none;
+    }
 
     @keyframes landscapeDrift {
         from { transform: scale(1.06) translate3d(-.4%, 0, 0); }
@@ -328,7 +346,8 @@ st.markdown(
     @keyframes rainDrift { from { transform: translate3d(-2%, -3%, 0); } to { transform: translate3d(3%, 9%, 0); } }
     @keyframes snowDrift { from { transform: translate3d(-1%, -3%, 0); } to { transform: translate3d(2%, 8%, 0); } }
     @keyframes windDrift { from { transform: translateX(-2%); opacity: .08; } to { transform: translateX(2%); opacity: .22; } }
-    @keyframes foliageSway { from { background-position: 48% 50%; } to { background-position: 53% 50%; } }
+    @keyframes foliageSway { from { transform:rotate(-1.2deg) scale(1.02); background-position:48% 50%; } to { transform:rotate(1.8deg) scale(1.07); background-position:53% 50%; } }
+    @keyframes canopyMove { from { transform:translate3d(-2%,0,0) scale(1); opacity:.12; } to { transform:translate3d(2%,-1.5%,0) scale(1.08); opacity:.3; } }
 
     @media (prefers-reduced-motion: reduce) {
         .environment *, .environment::before, .environment::after { animation: none !important; }
@@ -583,8 +602,16 @@ st.markdown(
     </style>
 
     <div class="environment scene-__VISUAL_THEME__" id="fresh-air-environment">
-        <div class="landscape"></div>
+        <div class="scene-stack" aria-hidden="true">
+            <div class="scene-slide primary"></div>
+            <div class="scene-slide garden"></div>
+            <div class="scene-slide meadow"></div>
+            <div class="scene-slide rain"></div>
+            <div class="scene-slide winter"></div>
+            <div class="scene-slide coast"></div>
+        </div>
         <div class="light-haze"></div>
+        <div class="canopy-light"></div>
         <div class="rain-layer"></div>
         <div class="snow-layer"></div>
         <div class="wind-layer"></div>
