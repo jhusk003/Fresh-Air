@@ -7,7 +7,10 @@ import uuid
 from html import escape
 from datetime import datetime, timezone, timedelta
 
+import os
 import certifi
+import streamlit as st
+from pymongo import MongoClient
 
 import streamlit as st
 from dotenv import load_dotenv
@@ -107,11 +110,6 @@ def generate_mission_audio(text):
 @st.cache_resource
 def get_mission_collection():
     """Connect to Atlas and return the mission journal collection."""
-    
-import os
-import certifi
-import streamlit as st
-from pymongo import MongoClient
 
 uri = os.getenv("MONGODB_URI")
 
