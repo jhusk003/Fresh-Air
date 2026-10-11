@@ -250,15 +250,65 @@ st.markdown(
 
     .sun {
         position: absolute;
-        width: 105px;
-        height: 105px;
-        top: 11%;
+        width: clamp(70px, 9vw, 125px);
+        height: clamp(70px, 9vw, 125px);
+        top: 10%;
         right: 15%;
         border-radius: 50%;
-        background: rgba(255, 230, 171, 0.88);
-        box-shadow: 0 0 70px rgba(255, 223, 153, 0.4);
-        animation: sunGlow 5s ease-in-out infinite alternate;
+        background: radial-gradient(circle at 32% 28%, #fff9d8 0%, #ffe6a3 38%, #f4b96f 72%, rgba(244,185,111,.15) 100%);
+        box-shadow: 0 0 35px rgba(255, 223, 153, .5), 0 0 100px rgba(255, 223, 153, .25), inset -10px -12px 24px rgba(191, 117, 58, .18);
+        animation: sunGlow 5s ease-in-out infinite alternate, sunDrift 24s ease-in-out infinite;
     }
+
+    /* Atmospheric layers: moving rain, snow, wind and soft drifting pollen */
+    .environment::before {
+        content: "";
+        position: absolute;
+        inset: -35% -15%;
+        opacity: 0;
+        pointer-events: none;
+        background-image: repeating-linear-gradient(106deg, transparent 0 24px, rgba(220,244,255,.52) 25px, transparent 27px 42px);
+        background-size: 95px 145px;
+        animation: rainFall .62s linear infinite, rainWeather 32s steps(1,end) infinite;
+        filter: blur(.35px);
+    }
+    .environment::after {
+        content: "";
+        position: absolute;
+        inset: -8% 0 0;
+        opacity: 0;
+        pointer-events: none;
+        background-image: radial-gradient(circle, rgba(255,255,255,.95) 0 1.5px, transparent 2.4px), radial-gradient(circle, rgba(235,250,255,.85) 0 2px, transparent 3px), radial-gradient(circle, rgba(255,255,255,.72) 0 1px, transparent 2px);
+        background-size: 87px 93px, 137px 151px, 61px 69px;
+        animation: snowFall 13s linear infinite, snowWeather 32s steps(1,end) infinite;
+        filter: drop-shadow(0 0 4px rgba(255,255,255,.25));
+    }
+
+    .wind-streaks { position:absolute; inset:0; opacity:.32; overflow:hidden; }
+    .wind-streaks span { position:absolute; width:clamp(90px,16vw,240px); height:1px; left:-28%; background:linear-gradient(90deg,transparent,rgba(240,255,255,.8),transparent); animation:windSweep 9s linear infinite; }
+    .wind-streaks span:nth-child(1){top:24%;animation-delay:-2s}
+    .wind-streaks span:nth-child(2){top:39%;animation-delay:-6s;transform:scale(.65)}
+    .wind-streaks span:nth-child(3){top:56%;animation-delay:-4s;transform:scale(1.3)}
+    .wind-streaks span:nth-child(4){top:68%;animation-delay:-8s;transform:scale(.8)}
+
+    /* Floating translucent 3-D forms add depth without covering content */
+    .orb, .crystal { position:absolute; pointer-events:none; transform-style:preserve-3d; }
+    .orb { border-radius:50%; background:radial-gradient(circle at 28% 22%,rgba(255,255,255,.9),rgba(170,237,223,.36) 18%,rgba(62,151,151,.14) 55%,rgba(10,50,64,.06) 75%); border:1px solid rgba(255,255,255,.22); box-shadow:inset -12px -16px 25px rgba(7,41,52,.17),inset 7px 7px 18px rgba(255,255,255,.15),0 18px 42px rgba(0,0,0,.13); backdrop-filter:blur(1px); animation:orbFloat 15s ease-in-out infinite; }
+    .orb.one{width:clamp(48px,7vw,95px);height:clamp(48px,7vw,95px);left:10%;top:24%;animation-delay:-3s}
+    .orb.two{width:clamp(28px,4vw,55px);height:clamp(28px,4vw,55px);right:26%;top:45%;animation-delay:-8s}
+    .orb.three{width:clamp(38px,5vw,72px);height:clamp(38px,5vw,72px);left:39%;top:12%;animation-delay:-11s}
+    .crystal { width:70px;height:90px; background:linear-gradient(135deg,rgba(238,255,250,.38),rgba(90,190,171,.1) 48%,rgba(26,93,100,.28)); clip-path:polygon(50% 0,92% 25%,78% 82%,48% 100%,13% 72%,7% 24%); border:1px solid rgba(255,255,255,.22); filter:drop-shadow(0 15px 18px rgba(0,0,0,.15)); animation:crystalTurn 18s ease-in-out infinite; }
+    .crystal.one{right:9%;top:54%;transform:scale(.9);animation-delay:-5s}
+    .crystal.two{left:23%;top:58%;transform:scale(.55);animation-delay:-12s}
+
+    /* Layered foreground plants with curved stems and dimensional leaves */
+    .plant { position:absolute; bottom:-3%; width:190px; height:290px; opacity:.9; transform-origin:bottom center; animation:plantSway 7s ease-in-out infinite; filter:drop-shadow(0 12px 12px rgba(0,0,0,.18)); }
+    .plant.left{left:-25px;transform:scale(.82);}
+    .plant.right{right:-30px;transform:scale(1.04) scaleX(-1);animation-delay:-3.5s}
+    .plant .stem{position:absolute;bottom:0;left:48%;width:5px;height:90%;border-radius:100%;background:linear-gradient(90deg,#173d35,#4b8b60,#9cc78b);transform:rotate(7deg);transform-origin:bottom;}
+    .plant .leaf{position:absolute;width:68px;height:31px;border-radius:100% 0 100% 0;background:linear-gradient(145deg,#b5d99a 0%,#579969 38%,#1e5949 100%);box-shadow:inset 3px 3px 6px rgba(255,255,255,.22),inset -5px -5px 8px rgba(0,30,20,.2);}
+    .plant .leaf:after{content:"";position:absolute;left:8%;top:49%;width:83%;height:1px;background:rgba(221,245,184,.65);transform:rotate(-10deg);}
+    .plant .l1{left:2%;bottom:22%;transform:rotate(28deg)} .plant .l2{left:48%;bottom:34%;transform:rotate(205deg) scale(.92)} .plant .l3{left:-2%;bottom:48%;transform:rotate(18deg) scale(.8)} .plant .l4{left:46%;bottom:61%;transform:rotate(208deg) scale(.72)} .plant .l5{left:16%;bottom:72%;transform:rotate(-8deg) scale(.58)}
 
     .cloud {
         position: absolute;
@@ -452,6 +502,15 @@ st.markdown(
         50% { transform: translateX(2%) rotate(2deg); }
     }
 
+    @keyframes rainFall { from { transform:translate3d(-4%, -12%, 0); } to { transform:translate3d(4%, 12%, 0); } }
+    @keyframes rainWeather { 0%, 24%, 75%, 100% { opacity:0; } 25%, 49% { opacity:.06; } 50%, 74% { opacity:.48; } }
+    @keyframes snowFall { 0%, 24%, 50%, 75%, 100% { opacity:0; } 25%, 49% { opacity:.9; } 76%, 99% { opacity:.5; } }
+    @keyframes windSweep { 0% { left:-30%; opacity:0; } 15% {opacity:.8} 85% {opacity:.55} 100% {left:130%;opacity:0} }
+    @keyframes orbFloat { 0%,100% { translate:0 0; rotate:-5deg; } 50% { translate:18px -28px; rotate:9deg; } }
+    @keyframes crystalTurn { 0%,100% { translate:0 0; rotate:-8deg; } 50% { translate:-16px -20px; rotate:12deg; } }
+    @keyframes plantSway { 0%,100% { rotate:-2deg; } 50% { rotate:3deg; } }
+    @keyframes sunDrift { 0%,100% { translate:0 0; } 50% { translate:-20px 8px; } }
+
     @keyframes cloudMove {
         from { left: -30%; }
         to { left: 120%; }
@@ -480,6 +539,14 @@ st.markdown(
         padding-top: 2rem;
         padding-bottom: 4rem;
         max-width: 1150px;
+    }
+
+    @media (max-width: 700px) {
+        .plant { opacity:.55; transform:scale(.52); }
+        .plant.left { left:-62px; }
+        .plant.right { right:-62px; }
+        .crystal { opacity:.55; }
+        .wind-streaks { opacity:.18; }
     }
 
     .hero {
@@ -695,9 +762,10 @@ st.markdown(
         .mountain,
         .glacier,
         .forest,
-        .waves {
+        .waves, .orb, .crystal, .plant, .wind-streaks span {
             animation: none !important;
         }
+        .environment::before, .environment::after { animation:none !important; }
     }
     </style>
 
@@ -712,6 +780,11 @@ st.markdown(
         <div class="forest"></div>
         <div class="waves"></div>
         <div class="waves second"></div>
+        <div class="wind-streaks"><span></span><span></span><span></span><span></span></div>
+        <div class="orb one"></div><div class="orb two"></div><div class="orb three"></div>
+        <div class="crystal one"></div><div class="crystal two"></div>
+        <div class="plant left"><div class="stem"></div><i class="leaf l1"></i><i class="leaf l2"></i><i class="leaf l3"></i><i class="leaf l4"></i><i class="leaf l5"></i></div>
+        <div class="plant right"><div class="stem"></div><i class="leaf l1"></i><i class="leaf l2"></i><i class="leaf l3"></i><i class="leaf l4"></i><i class="leaf l5"></i></div>
     </div>
     """,
     unsafe_allow_html=True,
