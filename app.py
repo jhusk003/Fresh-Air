@@ -107,20 +107,39 @@ def generate_mission_audio(text):
 @st.cache_resource
 def get_mission_collection():
     """Connect to Atlas and return the mission journal collection."""
-
-    uri = os.getenv("MONGODB_URI")
-
-    if not uri:
-        raise ValueError("MONGODB_URI is missing from .env")
-
     
-client = MongoClient(
-    uri,
-    tls=True,
-    tlsCAFile=certifi.where(),
-    serverSelectionTimeoutMS=10000,
-    connectTimeoutMS=10000,
-)
+import os
+import certifi
+import streamlit as st
+from pymongo import MongoClient
+
+uri = os.getenv("MONGODB_URI")
+
+if not uri:
+    st.error("MongoDB is not connected. Please configure MONGODB_URI in Streamlit Secrets.")
+    st.stop()
+
+try:
+    client = MongoClient(
+        uri,
+        tls=True,
+        tlsCAFile=certifi.where(),
+        serverSelectionTimeoutMS=10000,
+        connectTimeoutMS=10000,
+    )
+
+    # Verify that MongoDB is reachable
+    client.admin.command("ping")
+
+    db_name = os.getenv("MONGODB_DATABASE", "fresh_air")
+    collection_name = os.getenv("MONGODB_COLLECTION", "mission_journal")
+
+    db = client[db_name]
+    collection = db[collection_name]
+
+except Exception as e:
+    st.error(f"MongoDB connection failed: {e}")
+    st.stop()
 
 def save_completed_mission(
     mission_id, title, activity, feedback=None, preferences=None,
