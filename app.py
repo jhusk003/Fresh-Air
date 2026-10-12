@@ -732,49 +732,128 @@ st.markdown(
 
     .mission-smiley {
         position: absolute;
-        top: -25px;
+        top: -34px;
         left: 50%;
         transform: translateX(-50%);
-        z-index: 2;
-        width: 58px;
-        height: 58px;
+        z-index: 5;
+        width: 72px;
+        height: 72px;
         display: flex;
         align-items: center;
         justify-content: center;
         border-radius: 50%;
-        background: #ffe58a;
-        border: 3px solid rgba(255,255,255,0.95);
-        box-shadow: 0 7px 20px rgba(0,0,0,0.22);
-        color: #263b3b;
-        font-size: 2.45rem;
-        line-height: 1;
+        background: radial-gradient(circle at 32% 24%, #fff7bb 0 10%, #ffe779 42%, #ffc94f 100%);
+        border: 3px solid rgba(255,255,255,0.98);
+        box-shadow: 0 8px 24px rgba(0,0,0,0.24), inset 0 -4px 0 rgba(223,153,39,0.16);
         cursor: pointer;
-        transition: transform 180ms ease;
+        animation: smiley-float 3s ease-in-out infinite;
+        transform-origin: 50% 80%;
+        -webkit-tap-highlight-color: transparent;
+        outline: none;
     }
 
-    .mission-smiley:hover {
-        transform: translateX(-50%) rotate(-8deg) scale(1.1);
+    .smiley-eye {
+        position: absolute;
+        top: 25px;
+        width: 7px;
+        height: 10px;
+        border-radius: 50%;
+        background: #263b3b;
+        transform-origin: center;
+        animation: smiley-blink 4.8s infinite;
     }
-
+    .smiley-eye.left { left: 21px; }
+    .smiley-eye.right { right: 21px; animation-delay: 0.08s; }
+    .smiley-cheek {
+        position: absolute;
+        top: 39px;
+        width: 10px;
+        height: 6px;
+        border-radius: 50%;
+        background: rgba(246,112,103,0.58);
+        transition: transform .2s ease, background .2s ease;
+    }
+    .smiley-cheek.left { left: 10px; }
+    .smiley-cheek.right { right: 10px; }
+    .smiley-mouth {
+        position: absolute;
+        left: 50%;
+        top: 37px;
+        width: 20px;
+        height: 11px;
+        border-bottom: 3px solid #263b3b;
+        border-radius: 0 0 18px 18px;
+        transform: translateX(-50%);
+        transition: all .2s ease;
+    }
+    .smiley-sparkle {
+        position: absolute;
+        right: -8px;
+        top: -7px;
+        font-size: 19px;
+        animation: sparkle-pop 2s ease-in-out infinite;
+    }
+    .mission-smiley:hover, .mission-smiley:focus-visible {
+        animation: smiley-greet .65s ease-in-out, smiley-float 3s ease-in-out infinite;
+        box-shadow: 0 10px 28px rgba(0,0,0,0.3), 0 0 0 6px rgba(255,231,121,0.18);
+    }
+    .mission-smiley:hover .smiley-eye, .mission-smiley:focus-visible .smiley-eye {
+        height: 4px;
+        border-radius: 50% 50% 0 0;
+        animation: none;
+    }
+    .mission-smiley:hover .smiley-mouth, .mission-smiley:focus-visible .smiley-mouth {
+        width: 25px;
+        height: 14px;
+        border-bottom-width: 4px;
+    }
+    .mission-smiley:hover .smiley-cheek, .mission-smiley:focus-visible .smiley-cheek {
+        transform: scale(1.35);
+        background: rgba(246,112,103,0.82);
+    }
     .smiley-message {
         position: absolute;
         left: 50%;
-        bottom: calc(100% + 9px);
-        transform: translateX(-50%);
-        padding: 0.4rem 0.7rem;
-        border-radius: 999px;
-        background: #fff7d6;
+        bottom: calc(100% + 12px);
+        transform: translate(-50%, 5px) scale(.95);
+        padding: 0.48rem 0.78rem;
+        border: 1px solid rgba(255,255,255,.85);
+        border-radius: 15px 15px 15px 4px;
+        background: #fff8d9;
         color: #254343;
         font-size: 0.78rem;
-        font-weight: 700;
+        font-weight: 800;
         white-space: nowrap;
         opacity: 0;
         pointer-events: none;
-        transition: opacity 160ms ease;
+        box-shadow: 0 5px 16px rgba(0,0,0,.15);
+        transition: opacity .18s ease, transform .18s ease;
     }
-
-    .mission-smiley:hover .smiley-message {
+    .mission-smiley:hover .smiley-message, .mission-smiley:focus-visible .smiley-message {
         opacity: 1;
+        transform: translate(-50%, 0) scale(1);
+    }
+    @keyframes smiley-float {
+        0%, 100% { translate: 0 0; }
+        50% { translate: 0 -5px; }
+    }
+    @keyframes smiley-blink {
+        0%, 43%, 47%, 100% { transform: scaleY(1); }
+        45% { transform: scaleY(.12); }
+    }
+    @keyframes smiley-greet {
+        0%, 100% { rotate: 0deg; }
+        25% { rotate: -14deg; }
+        50% { rotate: 12deg; }
+        75% { rotate: -8deg; }
+    }
+    @keyframes sparkle-pop {
+        0%, 100% { transform: scale(.8) rotate(-12deg); opacity: .7; }
+        50% { transform: scale(1.2) rotate(12deg); opacity: 1; }
+    }
+    @media (prefers-reduced-motion: reduce) {
+        .mission-smiley, .smiley-eye, .smiley-sparkle { animation: none !important; }
+        .mission-smiley, .smiley-message, .smiley-mouth, .smiley-cheek { transition: none !important; }
     }
 
     .mission-title {
@@ -1148,7 +1227,7 @@ if mission:
     title = html.escape(str(mission.get("title", "Your mission")))
     description = html.escape(str(mission.get("description", "")))
     impact = html.escape(str(mission.get("impact", "")))
-    st.markdown(f'<div class="glass-card mission-prompt-card" style="background:linear-gradient(120deg,rgba(25,105,92,.82),rgba(55,91,138,.78),rgba(119,81,137,.75));"><span class="mission-smiley" title="You got this! Hover over me for a little encouragement" aria-label="Smiley face: you got this">☺<span class="smiley-message">You got this!</span></span><div class="metric-label">YOUR NEXT SMALL WIN</div><h2>{title}</h2><p>{description}</p><div class="metric-label">WHY IT MATTERS</div><p>{impact}</p></div>', unsafe_allow_html=True)
+    st.markdown(f'<div class="glass-card mission-prompt-card" style="background:linear-gradient(120deg,rgba(25,105,92,.82),rgba(55,91,138,.78),rgba(119,81,137,.75));"><span class="mission-smiley" tabindex="0" role="img" title="Say hi! Hover or focus me for a little encouragement" aria-label="Animated smiley mascot: you got this"><span class="smiley-eye left"></span><span class="smiley-eye right"></span><span class="smiley-cheek left"></span><span class="smiley-cheek right"></span><span class="smiley-mouth"></span><span class="smiley-sparkle" aria-hidden="true">✦</span><span class="smiley-message">You got this! ✨</span></span><div class="metric-label">YOUR NEXT SMALL WIN</div><h2>{title}</h2><p>{description}</p><div class="metric-label">WHY IT MATTERS</div><p>{impact}</p></div>', unsafe_allow_html=True)
     st.caption(f"⏱ About {mission.get('duration_minutes', minutes)} minutes · {html.escape(str(mission.get('difficulty', 'Gentle')))} · +{int(mission.get('points', 20))} points")
     with st.expander("🧠 Why the AI chose this mission", expanded=True):
         st.write(mission.get("ai_rationale", st.session_state.get("agent_rationale", "Chosen to fit your preferences.")))
