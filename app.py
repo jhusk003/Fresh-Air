@@ -8,9 +8,6 @@ import uuid
 from datetime import datetime, timezone
 
 import streamlit as st
-# Initialize Streamlit session state safely
-if "mission" not in st.session_state:
-    st.session_state["mission"] = None
 from dotenv import load_dotenv
 from google import genai
 
@@ -336,6 +333,53 @@ def generate_with_gemini(prompt, model):
     if not isinstance(raw_text, str) or not raw_text.strip():
         raise ValueError("Google hosted Gemma returned an empty response.")
     return raw_text.strip()
+
+
+# Offline missions keep Fresh Air usable when an AI API key is missing or a provider is unavailable.
+FALLBACK_MISSIONS = [
+    {
+        "title": "Notice Five Small Details",
+        "description": "Take a brief pause and notice the natural details around you. Let curiosity guide your attention without needing to go anywhere special.",
+        "steps": [
+            "Choose a comfortable, safe place outdoors, by a doorway, or beside a window.",
+            "Notice five natural details, such as light, clouds, leaves, shadows, or birdsong.",
+            "Pick one detail and observe it for another minute, without needing to name or photograph it.",
+        ],
+        "points": 20,
+        "impact": "A short pause to notice your surroundings can create a moment of calm and connection with nature.",
+        "activity": "Mindful nature observation",
+        "alternative": "If going outside is not practical, observe the sky, a plant, or natural light through a window.",
+        "visual_theme": "garden",
+    },
+    {
+        "title": "A Gentle Green Break",
+        "description": "Give yourself a few minutes away from your usual task. Look for nearby signs of plant life at a pace that feels comfortable.",
+        "steps": [
+            "Choose an accessible route or spot you can use safely without spending money.",
+            "Walk, roll, or sit comfortably and notice different shapes and shades of green.",
+            "Pause and take three comfortable breaths before returning to your day.",
+        ],
+        "points": 20,
+        "impact": "A brief change of focus may help you reset attention and appreciate the living things around you.",
+        "activity": "Gentle outdoor reset",
+        "alternative": "If you cannot go outside, look at a houseplant or a tree from a window, or imagine a familiar green place.",
+        "visual_theme": "forest",
+    },
+    {
+        "title": "Listen to the World",
+        "description": "Slow down and listen for ordinary sounds in your environment. There is no need to identify every sound or travel anywhere.",
+        "steps": [
+            "Settle in a safe, comfortable spot, indoors or outdoors.",
+            "Listen quietly for one minute and notice sounds that are near and far away.",
+            "Choose one sound to follow for a few more breaths, then notice how you feel.",
+        ],
+        "points": 15,
+        "impact": "Listening carefully can offer a simple grounding moment and draw attention to the environment.",
+        "activity": "Sound awareness",
+        "alternative": "If the area is noisy or outdoor access is limited, listen for rain, wind, or other sounds from indoors; silence is also fine.",
+        "visual_theme": "meadow",
+    },
+]
 
 
 def make_fallback_mission(goal):
@@ -1024,7 +1068,7 @@ if st.button("🎧 Listen to My Mission"):
 # CURRENT MISSION
 # =========================================================
 
-if st.session_state.get("mission") is not None:
+if st.session_state.mission:
     mission = st.session_state.mission
 
     st.markdown("---")
