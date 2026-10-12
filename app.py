@@ -724,6 +724,59 @@ st.markdown(
         text-transform: uppercase;
     }
 
+    .mission-prompt-card {
+        position: relative;
+        overflow: visible;
+        padding-top: 3.4rem !important;
+    }
+
+    .mission-smiley {
+        position: absolute;
+        top: -25px;
+        left: 50%;
+        transform: translateX(-50%);
+        z-index: 2;
+        width: 58px;
+        height: 58px;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        border-radius: 50%;
+        background: #ffe58a;
+        border: 3px solid rgba(255,255,255,0.95);
+        box-shadow: 0 7px 20px rgba(0,0,0,0.22);
+        color: #263b3b;
+        font-size: 2.45rem;
+        line-height: 1;
+        cursor: pointer;
+        transition: transform 180ms ease;
+    }
+
+    .mission-smiley:hover {
+        transform: translateX(-50%) rotate(-8deg) scale(1.1);
+    }
+
+    .smiley-message {
+        position: absolute;
+        left: 50%;
+        bottom: calc(100% + 9px);
+        transform: translateX(-50%);
+        padding: 0.4rem 0.7rem;
+        border-radius: 999px;
+        background: #fff7d6;
+        color: #254343;
+        font-size: 0.78rem;
+        font-weight: 700;
+        white-space: nowrap;
+        opacity: 0;
+        pointer-events: none;
+        transition: opacity 160ms ease;
+    }
+
+    .mission-smiley:hover .smiley-message {
+        opacity: 1;
+    }
+
     .mission-title {
         color: #ffffff;
         font-family: 'Manrope', sans-serif;
@@ -1095,7 +1148,7 @@ if mission:
     title = html.escape(str(mission.get("title", "Your mission")))
     description = html.escape(str(mission.get("description", "")))
     impact = html.escape(str(mission.get("impact", "")))
-    st.markdown(f'<div class="glass-card" style="background:linear-gradient(120deg,rgba(25,105,92,.82),rgba(55,91,138,.78),rgba(119,81,137,.75));"><div class="metric-label">YOUR NEXT SMALL WIN</div><h2>{title}</h2><p>{description}</p><div class="metric-label">WHY IT MATTERS</div><p>{impact}</p></div>', unsafe_allow_html=True)
+    st.markdown(f'<div class="glass-card mission-prompt-card" style="background:linear-gradient(120deg,rgba(25,105,92,.82),rgba(55,91,138,.78),rgba(119,81,137,.75));"><span class="mission-smiley" title="You got this! Hover over me for a little encouragement" aria-label="Smiley face: you got this">☺<span class="smiley-message">You got this!</span></span><div class="metric-label">YOUR NEXT SMALL WIN</div><h2>{title}</h2><p>{description}</p><div class="metric-label">WHY IT MATTERS</div><p>{impact}</p></div>', unsafe_allow_html=True)
     st.caption(f"⏱ About {mission.get('duration_minutes', minutes)} minutes · {html.escape(str(mission.get('difficulty', 'Gentle')))} · +{int(mission.get('points', 20))} points")
     with st.expander("🧠 Why the AI chose this mission", expanded=True):
         st.write(mission.get("ai_rationale", st.session_state.get("agent_rationale", "Chosen to fit your preferences.")))
