@@ -51,6 +51,7 @@ _SESSION_DEFAULTS = {
     "mission_generation_source": "", "mission_generation_model": OLLAMA_MODEL,
     "mission_used_ai": False, "chat_messages": [], "agent_trace": [],
     "mission_candidates": [], "mission_feedback_saved": False,
+    "journal_loaded": False,
 }
 for _key, _default in _SESSION_DEFAULTS.items():
     if _key not in st.session_state:
@@ -83,11 +84,13 @@ def call_original_ai(prompt, *, temperature=0.65, timeout=120, json_mode=False, 
         "model": OLLAMA_MODEL,
         "prompt": prompt,
         "stream": False,
+        # Keep the small model resident so consecutive button clicks don't pay
+        # the model-load cost each time. Bound context/output for faster responses.
+        "keep_alive": "10m",
         "options": {
             "temperature": temperature,
-            # llama3.2:1b is intentionally kept concise: it runs on the user's laptop
-            # through a tunnel, so long generations can exceed Render's request window.
-            "num_predict": max(64, min(int(max_tokens), 700)),
+            "num_ctx": 2048,
+            "num_predict": max(64, min(int(max_tokens), 320)),
         },
     }
     if json_mode:
@@ -144,21 +147,29 @@ def get_user_key():
 
 
 def load_journal():
+    """Load MongoDB history once per browser session; local mutations stay in sync.
+
+    Streamlit reruns the whole script after button clicks. Reading MongoDB on each
+    rerun made even unrelated controls feel slow, so we hydrate once and then use
+    the session copy while save/update functions continue persisting changes.
+    """
     local = st.session_state.get("journal", [])
-    collection = get_mongo_collection()
-    if collection is None:
+    if st.session_state.get("journal_loaded"):
         return local
-    try:
-        docs = list(collection.find({"session_key": get_user_key()}).sort("completed_at", -1).limit(100))
-        if docs:
-            for doc in docs:
-                doc.pop("_id", None)
-                if isinstance(doc.get("completed_at"), datetime) and doc["completed_at"].tzinfo is None:
-                    doc["completed_at"] = doc["completed_at"].replace(tzinfo=timezone.utc)
-            st.session_state.journal = docs
-            return docs
-    except Exception:
-        pass
+    collection = get_mongo_collection()
+    if collection is not None:
+        try:
+            docs = list(collection.find({"session_key": get_user_key()}).sort("completed_at", -1).limit(100))
+            if docs:
+                for doc in docs:
+                    doc.pop("_id", None)
+                    if isinstance(doc.get("completed_at"), datetime) and doc["completed_at"].tzinfo is None:
+                        doc["completed_at"] = doc["completed_at"].replace(tzinfo=timezone.utc)
+                st.session_state.journal = docs
+                local = docs
+        except Exception:
+            pass
+    st.session_state.journal_loaded = True
     return local
 
 
@@ -392,20 +403,21 @@ def generate_mission_candidates(preferences, count=1):
         "accessibility": preferences.get("accessibility", "none specified"),
         "extra_context": clean_text(preferences.get("extra_context", ""), "", 220),
     }
-    prompt = f"""Create ONE concise, personalized nature/wellbeing mission for Fresh Air.
-USER: {json.dumps(compact_context, ensure_ascii=False)}
-DESTINATION: {destination}
-RECENT PREFERENCE MEMORY: {clean_text(memory, 'No prior feedback.', 300)}
-Rules: free, safe, practical, no required purchases/supplies/travel; include an indoor/window alternative if needed; don't invent place details or claim measured environmental impact. Match the user's goal, mood, energy, accessibility, and interests. Make exactly 3 clear steps, each with a realistic time range in minutes; the ranges together should cover the requested {compact_context['minutes']} minutes. Make the description warm, personable, and encouraging: 3 short sentences (about 45–65 words), speak directly to the user, explain what the experience may feel like, include the total time, and reassure them that there is no pressure to do it perfectly. Do not make medical promises. Choose visual_theme from forest, garden, meadow, rain, winter, coast.
-Return ONLY one valid JSON object with these keys: title, description, steps (array of 3 strings), points (integer 10-30), impact, activity, alternative, visual_theme, difficulty, ai_rationale, selection_rationale. Aim for 280–330 tokens total so the description feels personal but still finishes quickly. Do not add markdown or extra text."""
+    prompt = f"""Create ONE warm, practical Fresh Air nature mission.
+Preferences: {json.dumps(compact_context, ensure_ascii=False)}
+Place: {destination}
+Memory: {clean_text(memory, 'No previous feedback.', 180)}
+Keep it free, safe, accessible, and realistic; no required purchases or travel, no invented place facts, and no medical promises. Write a personable description of 3 short sentences (about 40–50 words) that speaks directly to the user, mentions the total {compact_context['minutes']} minutes, and feels encouraging rather than robotic. Include exactly 3 simple steps with minute ranges that together cover {compact_context['minutes']} minutes. Include a useful indoor/window alternative. Pick visual_theme from forest, garden, meadow, rain, winter, coast.
+Return ONLY one valid JSON object with keys: title, description, steps (3 strings), points (integer 10–30), impact, activity, alternative, visual_theme, difficulty, ai_rationale, selection_rationale. Keep every field brief. No markdown."""
     try:
-        raw = call_original_ai(prompt, temperature=0.45, timeout=150, json_mode=True, max_tokens=380)
+        # Short output + a resident model makes the common path much faster.
+        raw = call_original_ai(prompt, temperature=0.4, timeout=65, json_mode=True, max_tokens=260)
         result = parse_json_object(raw)
     except (requests.RequestException, ValueError, json.JSONDecodeError) as first_error:
-        # A compact retry helps if the small model returns malformed or incomplete JSON.
-        retry_prompt = f"Return one concise valid JSON nature mission for this user: {json.dumps(compact_context, ensure_ascii=False)}. Keys: title, description, steps (3 short strings), points (integer), impact, activity, alternative, visual_theme (forest/garden/meadow/rain/winter/coast), difficulty, ai_rationale, selection_rationale. Free, safe, no purchases or required travel. Output JSON only."
+        # One much smaller retry, rather than potentially waiting several minutes.
+        retry_prompt = f"JSON only: create one safe, free Fresh Air mission for {json.dumps(compact_context, ensure_ascii=False)}. Keys: title, description (3 warm sentences, mention {compact_context['minutes']} minutes), steps (3 timed strings), points, impact, activity, alternative, visual_theme, difficulty, ai_rationale, selection_rationale. No markdown."
         try:
-            raw = call_original_ai(retry_prompt, temperature=0.2, timeout=120, json_mode=True, max_tokens=220)
+            raw = call_original_ai(retry_prompt, temperature=0.15, timeout=35, json_mode=True, max_tokens=170)
             result = parse_json_object(raw)
         except Exception:
             raise first_error
