@@ -174,35 +174,42 @@ st.set_page_config(
 with st.sidebar:
     st.header("⚙️ Mission Settings")
     provider_options = {
-        "Gemini API (hosted; recommended for Render)": "gemini",
+        "Hosted Gemma API (recommended for Render)": "gemini",
         "Ollama (self-hosted server)": "ollama",
     }
     _configured_provider = get_setting("AI_PROVIDER", "gemini").strip().lower()
     _default_provider_label = (
         "Ollama (self-hosted server)"
         if _configured_provider == "ollama"
-        else "Gemini API (hosted; recommended for Render)"
+        else "Hosted Gemma API (recommended for Render)"
     )
     selected_provider_label = st.selectbox(
         "AI provider",
         options=list(provider_options.keys()),
         index=list(provider_options.keys()).index(_default_provider_label),
-        help="Gemini calls a hosted API directly. Ollama requires a reachable server.",
+        help="Hosted Gemma calls Google’s API directly. Ollama requires a reachable server.",
     )
     AI_PROVIDER = provider_options[selected_provider_label]
 
     if AI_PROVIDER == "gemini":
-        _gemini_default = get_setting("GEMINI_MODEL", "gemini-3.5-flash-lite")
-        _gemini_models = list(dict.fromkeys([
-            _gemini_default, "gemini-3.5-flash-lite", "gemini-3.5-flash", "gemini-3.8-flash"
+        # Use Gemma hosted by Google's Gemini API. Strip a leading `models/`
+        # defensively so the request URL can never become models/models/<name>.
+        _gemma_default = get_setting(
+            "GEMMA_MODEL",
+            get_setting("GEMINI_MODEL", "gemma-4-26b-a4b-it"),
+        ).strip().removeprefix("models/")
+        _gemma_models = list(dict.fromkeys([
+            _gemma_default,
+            "gemma-4-26b-a4b-it",
+            "gemma-4-31b-it",
         ]))
         selected_model = st.selectbox(
-            "Gemini model",
-            options=_gemini_models,
+            "Hosted Gemma model",
+            options=_gemma_models,
             index=0,
-            help="Choose a model enabled for your Google AI Studio API key. Free-tier access and limits vary by model and account.",
+            help="Select a Gemma model available to your Google AI Studio API key.",
         )
-        st.caption("Mission generation uses Google's hosted Gemini API. The API key stays in Render Environment variables; it is not written into the app code.")
+        st.caption("Mission generation uses hosted Gemma through Google's Generative Language API. Keep GEMINI_API_KEY private in Render Environment variables.")
     else:
         _ollama_default = get_setting("OLLAMA_MODEL", "gemma2:2b")
         selected_model = st.selectbox(
@@ -224,8 +231,9 @@ with st.sidebar:
                 }
             else:
                 try:
+                    _test_model = str(selected_model).strip().removeprefix("models/")
                     _test_response = requests.post(
-                        f"https://generativelanguage.googleapis.com/v1beta/models/{selected_model}:generateContent",
+                        f"https://generativelanguage.googleapis.com/v1beta/models/{_test_model}:generateContent",
                         headers={"x-goog-api-key": _gemini_key, "Content-Type": "application/json"},
                         json={
                             "contents": [{"parts": [{"text": "Reply with exactly: Fresh Air AI connection successful."}]}],
@@ -236,7 +244,7 @@ with st.sidebar:
                     if _test_response.ok:
                         st.session_state["ai_model_test"] = {
                             "provider": AI_PROVIDER, "model": selected_model, "ok": True,
-                            "message": f"Gemini API connection successful for {selected_model}.",
+                            "message": f"Hosted Gemma API connection successful for {_test_model}.",
                         }
                     else:
                         try:
@@ -245,7 +253,7 @@ with st.sidebar:
                             _test_detail = _test_response.text
                         st.session_state["ai_model_test"] = {
                             "provider": AI_PROVIDER, "model": selected_model, "ok": False,
-                            "message": str(_test_detail)[:350] or f"Gemini returned HTTP {_test_response.status_code}.",
+                            "message": str(_test_detail)[:350] or f"Google API returned HTTP {_test_response.status_code}.",
                         }
                 except requests.RequestException as _test_error:
                     st.session_state["ai_model_test"] = {
@@ -288,7 +296,11 @@ with st.sidebar:
             st.error(f"Model test failed: {_model_test.get('message', 'Unknown AI provider error')}")
 
 MODEL = selected_model
-DEFAULT_MODEL = get_setting("GEMINI_MODEL", "gemini-3.5-flash-lite") if AI_PROVIDER == "gemini" else get_setting("OLLAMA_MODEL", "gemma2:2b")
+DEFAULT_MODEL = (
+    get_setting("GEMMA_MODEL", get_setting("GEMINI_MODEL", "gemma-4-26b-a4b-it")).strip().removeprefix("models/")
+    if AI_PROVIDER == "gemini"
+    else get_setting("OLLAMA_MODEL", "gemma2:2b")
+)
 
 
 def get_ollama_generate_url():
@@ -302,10 +314,15 @@ def get_ollama_generate_url():
 
 
 def generate_with_gemini(prompt, model):
-    """Generate JSON text with Google's hosted Gemini API."""
+    """Generate JSON text with a Gemma model hosted by Google's API."""
     api_key = get_setting("GEMINI_API_KEY")
     if not api_key:
         raise ValueError("GEMINI_API_KEY is missing. Add it in Render → Environment.")
+    # The API URL requires models/<model> exactly once. Accept either a bare
+    # model name or a value copied with the `models/` prefix.
+    model = str(model or "gemma-4-26b-a4b-it").strip().removeprefix("models/")
+    if not model or "/" in model or ":" in model:
+        raise ValueError("GEMMA_MODEL must be a bare model ID, such as gemma-4-26b-a4b-it.")
     url = f"https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent"
     response = requests.post(
         url,
@@ -325,7 +342,7 @@ def generate_with_gemini(prompt, model):
             detail = response.json().get("error", {}).get("message", response.text)
         except Exception:
             detail = response.text
-        raise RuntimeError(f"Gemini API error ({response.status_code}): {str(detail)[:300]}")
+        raise RuntimeError(f"Google hosted Gemma API error ({response.status_code}): {str(detail)[:300]}")
     data = response.json()
     candidates = data.get("candidates", [])
     if not candidates:
@@ -340,8 +357,8 @@ def generate_with_gemini(prompt, model):
 # ANIMATED ENVIRONMENTAL BACKGROUND
 # =========================================================
 
-# Ollama supplies a small, validated visual theme with each mission. The model
-# selects a scene; CSS handles the actual photographic imagery and animation.
+# The selected AI provider supplies a small, validated visual theme with each mission.
+# The model selects a scene; CSS handles the photographic imagery and animation.
 _existing_mission = st.session_state.get("mission") or {}
 _visual_theme = str(_existing_mission.get("visual_theme", "forest")).strip().lower()
 if _visual_theme not in {"forest", "garden", "meadow", "rain", "winter", "coast"}:
@@ -1612,7 +1629,7 @@ if st.session_state.mission:
         _actual_model = st.session_state.get("mission_generation_model", MODEL)
         _generation_source = st.session_state.get("mission_generation_source", "Ollama")
         if _generation_source == "Direct Gemini API":
-            st.success(f"AI mission generated successfully with hosted Gemini model: {_actual_model}")
+            st.success(f"AI mission generated successfully with hosted Gemma model: {_actual_model}")
         elif _generation_source == "Direct Ollama":
             st.success(f"AI mission generated successfully with Ollama model: {_actual_model}")
         else:
@@ -1627,7 +1644,7 @@ if st.session_state.mission:
                 st.code(_generation_error)
         st.caption(
             "Check the selected AI provider's API key, model access, quota, and connection. "
-            "For Gemini, confirm GEMINI_API_KEY and GEMINI_MODEL in Render Environment. "
+            "For hosted Gemma, confirm GEMINI_API_KEY and GEMMA_MODEL in Render Environment. "
             "For Ollama, confirm OLLAMA_URL is a reachable hosted endpoint."
         )
 
