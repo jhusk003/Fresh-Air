@@ -295,17 +295,34 @@ def validate_mission(candidate, goal, minutes):
         points = int(candidate.get("points", 20))
     except (TypeError, ValueError):
         points = 20
+    duration = max(1, min(180, int(minutes)))
+    # Add a consistent, easy-to-follow timeline even if the small model forgets it.
+    # Divide the requested total across the steps so the timing is explicit and usable.
+    timed_steps = []
+    step_count = len(steps)
+    for index, step in enumerate(steps):
+        start_minute = round(index * duration / step_count)
+        end_minute = round((index + 1) * duration / step_count)
+        if end_minute <= start_minute:
+            end_minute = start_minute + 1
+        if re.match(r"^\s*(?:\d+\s*(?:-|–|to)\s*\d+\s*(?:min|minutes?)|(?:first|next|final)\s+\d+\s+minutes?)\b", step, re.IGNORECASE):
+            timed_steps.append(step)
+        else:
+            timed_steps.append(f"{start_minute}–{end_minute} min: {step}")
+    description = clean_text(candidate.get("description"), "Take a little breathing room and notice the nature around you, at your own pace.", 700)
+    if not re.search(r"\b\d+\s*(?:min|minutes?)\b", description, re.IGNORECASE):
+        description = f"{description.rstrip('. ')}. Give yourself about {duration} minutes for this; there is no need to do it perfectly—just show up and notice one small thing."[:700]
     return {
         "title": clean_text(candidate.get("title"), "A Small Nature Reset", 120),
-        "description": clean_text(candidate.get("description"), "Take a few minutes to notice the natural details around you.", 600),
-        "steps": steps,
+        "description": description,
+        "steps": timed_steps,
         "points": max(5, min(50, points)),
         "impact": clean_text(candidate.get("impact"), "This activity offers a chance to notice and appreciate your surroundings.", 500),
         "activity": clean_text(candidate.get("activity"), candidate.get("title", "Nature activity"), 100),
         "alternative": clean_text(candidate.get("alternative"), "Try a seated or window-based nature observation instead.", 400),
         "visual_theme": theme,
         "goal": clean_text(goal, "General", 100),
-        "duration_minutes": max(1, min(180, int(minutes))),
+        "duration_minutes": duration,
         "ai_rationale": clean_text(candidate.get("ai_rationale"), "This option best fits the preferences and constraints you shared.", 400),
         "difficulty": clean_text(candidate.get("difficulty"), "Gentle", 40),
     }
@@ -359,10 +376,10 @@ def generate_mission_candidates(preferences, count=1):
 USER: {json.dumps(compact_context, ensure_ascii=False)}
 DESTINATION: {destination}
 RECENT PREFERENCE MEMORY: {clean_text(memory, 'No prior feedback.', 300)}
-Rules: free, safe, practical, no required purchases/supplies/travel; include an indoor/window alternative if needed; don't invent place details or claim measured environmental impact. Make exactly 3 short steps. Match the user's goal, access, energy, accessibility, and interests. Choose visual_theme from forest, garden, meadow, rain, winter, coast.
-Return ONLY one valid JSON object with these keys and concise values: title, description, steps (array of 3 strings), points (integer 10-30), impact, activity, alternative, visual_theme, difficulty, ai_rationale, selection_rationale. Keep the entire response short enough to fit in about 220 tokens. Do not add markdown or extra text."""
+Rules: free, safe, practical, no required purchases/supplies/travel; include an indoor/window alternative if needed; don't invent place details or claim measured environmental impact. Match the user's goal, mood, energy, accessibility, and interests. Make exactly 3 clear steps, each with a realistic time range in minutes; the ranges together should cover the requested {compact_context['minutes']} minutes. Make the description warm, personable, and encouraging: 3 short sentences (about 45–65 words), speak directly to the user, explain what the experience may feel like, include the total time, and reassure them that there is no pressure to do it perfectly. Do not make medical promises. Choose visual_theme from forest, garden, meadow, rain, winter, coast.
+Return ONLY one valid JSON object with these keys: title, description, steps (array of 3 strings), points (integer 10-30), impact, activity, alternative, visual_theme, difficulty, ai_rationale, selection_rationale. Aim for 280–330 tokens total so the description feels personal but still finishes quickly. Do not add markdown or extra text."""
     try:
-        raw = call_original_ai(prompt, temperature=0.45, timeout=150, json_mode=True, max_tokens=300)
+        raw = call_original_ai(prompt, temperature=0.45, timeout=150, json_mode=True, max_tokens=380)
         result = parse_json_object(raw)
     except (requests.RequestException, ValueError, json.JSONDecodeError) as first_error:
         # A compact retry helps if the small model returns malformed or incomplete JSON.
@@ -707,6 +724,63 @@ st.markdown(
         -webkit-backdrop-filter: blur(18px);
         box-shadow: 0 16px 45px rgba(0,0,0,0.12);
         margin-bottom: 1rem;
+    }
+
+    .mission-prompt-card {
+        position: relative;
+        overflow: visible;
+        padding-right: 4.6rem;
+    }
+
+    .mission-smiley {
+        position: absolute;
+        top: 1rem;
+        right: 1rem;
+        z-index: 2;
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        width: 2.7rem;
+        height: 2.7rem;
+        border-radius: 50%;
+        background: rgba(255,255,255,0.14);
+        border: 1px solid rgba(255,255,255,0.42);
+        font-size: 1.55rem;
+        line-height: 1;
+        cursor: pointer;
+        user-select: none;
+        transform: rotate(0deg) scale(1);
+        transition: transform 180ms ease, background 180ms ease, box-shadow 180ms ease;
+    }
+
+    .mission-smiley:hover,
+    .mission-smiley:active {
+        background: rgba(168,240,206,0.30);
+        transform: rotate(14deg) scale(1.18);
+        box-shadow: 0 0 0 7px rgba(168,240,206,0.13), 0 8px 24px rgba(0,0,0,0.20);
+    }
+
+    .smiley-message {
+        position: absolute;
+        right: 0;
+        top: 3rem;
+        width: max-content;
+        max-width: 12rem;
+        padding: 0.4rem 0.65rem;
+        border-radius: 999px;
+        color: #123b32;
+        background: #c9ffe4;
+        font: 700 0.75rem 'DM Sans', sans-serif;
+        opacity: 0;
+        transform: translateY(-4px);
+        pointer-events: none;
+        transition: opacity 180ms ease, transform 180ms ease;
+    }
+
+    .mission-smiley:hover .smiley-message,
+    .mission-smiley:active .smiley-message {
+        opacity: 1;
+        transform: translateY(0);
     }
 
     .metric-label {
@@ -1093,9 +1167,7 @@ mission = st.session_state.get("mission")
 if mission:
     st.markdown("---")
     st.markdown('<div class="section-heading">Your AI-planned mission</div>', unsafe_allow_html=True)
-    if st.session_state.get("mission_used_ai"):
-        st.success(f"Generated by your original Ollama AI: {st.session_state.get('mission_generation_model', OLLAMA_MODEL)}")
-    else:
+    if not st.session_state.get("mission_used_ai"):
         st.warning("A built-in fallback mission is shown because the original AI could not be reached.")
         if st.session_state.get("mission_generation_error"):
             with st.expander("AI connection or generation details"):
@@ -1103,7 +1175,7 @@ if mission:
     title = html.escape(str(mission.get("title", "Your mission")))
     description = html.escape(str(mission.get("description", "")))
     impact = html.escape(str(mission.get("impact", "")))
-    st.markdown(f'<div class="glass-card" style="background:linear-gradient(120deg,rgba(25,105,92,.82),rgba(55,91,138,.78),rgba(119,81,137,.75));"><div class="metric-label">YOUR NEXT SMALL WIN</div><h2>{title}</h2><p>{description}</p><div class="metric-label">WHY IT MATTERS</div><p>{impact}</p></div>', unsafe_allow_html=True)
+    st.markdown(f'<div class="glass-card mission-prompt-card" style="background:linear-gradient(120deg,rgba(25,105,92,.82),rgba(55,91,138,.78),rgba(119,81,137,.75));"><span class="mission-smiley" title="You got this! Hover or drag over me for a little encouragement" aria-label="Smiley face: you got this">☺️<span class="smiley-message">You got this!</span></span><div class="metric-label">YOUR NEXT SMALL WIN</div><h2>{title}</h2><p>{description}</p><div class="metric-label">WHY IT MATTERS</div><p>{impact}</p></div>', unsafe_allow_html=True)
     st.caption(f"⏱ About {mission.get('duration_minutes', minutes)} minutes · {html.escape(str(mission.get('difficulty', 'Gentle')))} · +{int(mission.get('points', 20))} points")
     with st.expander("🧠 Why the AI chose this mission", expanded=True):
         st.write(mission.get("ai_rationale", st.session_state.get("agent_rationale", "Chosen to fit your preferences.")))
