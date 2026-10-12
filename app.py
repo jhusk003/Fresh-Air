@@ -264,8 +264,8 @@ with st.sidebar:
                 }
             else:
                 try:
-                    # The official SDK takes the bare model ID. Do not pass
-                    # the REST-style "models/" prefix to this method.
+                    # The Google Gen AI Python SDK expects the bare model ID,
+                    # not the REST resource path prefixed with "models/".
                     _test_model = str(selected_model).strip().removeprefix("models/").strip()
                     _test_client = genai.Client(api_key=_gemini_key)
                     _test_response = _test_client.models.generate_content(
@@ -346,15 +346,15 @@ def generate_with_gemini(prompt, model):
     if not api_key:
         raise ValueError("GEMINI_API_KEY is missing. Add it in Render → Environment.")
 
-    # The SDK expects the bare model ID, e.g. gemma-4-26b-a4b-it.
-    # Never send the REST path prefix "models/" as part of the model value.
-    model = str(model or "gemma-4-26b-a4b-it").strip().removeprefix("models/").strip()
-    if not model or "/" in model or ":" in model:
-        raise ValueError("GEMMA_MODEL must be a bare model ID, such as gemma-4-26b-a4b-it.")
+    # Normalize the configured value to a bare model ID. The Google Gen AI
+    # Python SDK expects e.g. "gemma-4-26b-a4b-it", not "models/...".
+    model_id = str(model or "gemma-4-26b-a4b-it").strip().removeprefix("models/").strip()
+    if not model_id or "/" in model_id or ":" in model_id:
+        raise ValueError("GEMMA_MODEL must be a bare model ID such as gemma-4-26b-a4b-it.")
 
     client = genai.Client(api_key=api_key)
     response = client.models.generate_content(
-        model=model,
+        model=model_id,
         contents=(
             prompt
             + "\n\nReturn only one valid JSON object. Do not include Markdown fences, "
@@ -569,7 +569,7 @@ Use exactly this JSON structure:
     try:
         if AI_PROVIDER == "gemini":
             raw_text = generate_with_gemini(prompt, MODEL)
-            source = "Direct Gemini API"
+            source = "Google-hosted Gemma API"
         else:
             ollama_generate_url = get_ollama_generate_url()
             response = requests.post(
