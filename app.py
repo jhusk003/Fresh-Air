@@ -51,7 +51,6 @@ _SESSION_DEFAULTS = {
     "mission_generation_source": "", "mission_generation_model": OLLAMA_MODEL,
     "mission_used_ai": False, "chat_messages": [], "agent_trace": [],
     "mission_candidates": [], "mission_feedback_saved": False,
-    "journal_loaded": False,
 }
 for _key, _default in _SESSION_DEFAULTS.items():
     if _key not in st.session_state:
@@ -84,18 +83,16 @@ def call_original_ai(prompt, *, temperature=0.65, timeout=120, json_mode=False, 
         "model": OLLAMA_MODEL,
         "prompt": prompt,
         "stream": False,
-        # Keep the small model resident so consecutive button clicks don't pay
-        # the model-load cost each time. Bound context/output for faster responses.
-        "keep_alive": "10m",
         "options": {
             "temperature": temperature,
-            "num_ctx": 2048,
-            "num_predict": max(64, min(int(max_tokens), 320)),
+            # llama3.2:1b is intentionally kept concise: it runs on the user's laptop
+            # through a tunnel, so long generations can exceed Render's request window.
+            "num_predict": max(64, min(int(max_tokens), 700)),
         },
     }
     if json_mode:
         payload["format"] = "json"
-    response = requests.post(ollama_endpoint("/api/generate"), json=payload, timeout=(8, timeout))
+    response = requests.post(ollama_endpoint("/api/generate"), json=payload, timeout=(3, timeout))
     response.raise_for_status()
     data = response.json()
     answer = data.get("response", "") if isinstance(data, dict) else ""
@@ -147,29 +144,21 @@ def get_user_key():
 
 
 def load_journal():
-    """Load MongoDB history once per browser session; local mutations stay in sync.
-
-    Streamlit reruns the whole script after button clicks. Reading MongoDB on each
-    rerun made even unrelated controls feel slow, so we hydrate once and then use
-    the session copy while save/update functions continue persisting changes.
-    """
     local = st.session_state.get("journal", [])
-    if st.session_state.get("journal_loaded"):
-        return local
     collection = get_mongo_collection()
-    if collection is not None:
-        try:
-            docs = list(collection.find({"session_key": get_user_key()}).sort("completed_at", -1).limit(100))
-            if docs:
-                for doc in docs:
-                    doc.pop("_id", None)
-                    if isinstance(doc.get("completed_at"), datetime) and doc["completed_at"].tzinfo is None:
-                        doc["completed_at"] = doc["completed_at"].replace(tzinfo=timezone.utc)
-                st.session_state.journal = docs
-                local = docs
-        except Exception:
-            pass
-    st.session_state.journal_loaded = True
+    if collection is None:
+        return local
+    try:
+        docs = list(collection.find({"session_key": get_user_key()}).sort("completed_at", -1).limit(100))
+        if docs:
+            for doc in docs:
+                doc.pop("_id", None)
+                if isinstance(doc.get("completed_at"), datetime) and doc["completed_at"].tzinfo is None:
+                    doc["completed_at"] = doc["completed_at"].replace(tzinfo=timezone.utc)
+            st.session_state.journal = docs
+            return docs
+    except Exception:
+        pass
     return local
 
 
@@ -284,40 +273,20 @@ def generate_mission_audio(text):
 def validate_mission(candidate, goal, minutes):
     if not isinstance(candidate, dict):
         raise ValueError("Mission response must be a JSON object.")
-
-    # Small local models sometimes return a valid JSON object but format `steps`
-    # as a paragraph/string, omit a step, or wrap each step in a slightly different
-    # shape. Normalize those cases instead of discarding an otherwise useful AI mission.
-    steps_raw = candidate.get("steps", [])
-    if isinstance(steps_raw, str):
-        # First try splitting numbered/bulleted lines; if it is one paragraph,
-        # keep it as one candidate step and let the safe step builder fill gaps.
-        split_steps = re.split(r"\n+|(?<=\.)\s+(?=(?:\d+[.)]|[-•]))", steps_raw)
-        steps_raw = [re.sub(r"^\s*(?:\d+[.)]|[-•])\s*", "", part).strip() for part in split_steps]
-    elif isinstance(steps_raw, dict):
-        steps_raw = [steps_raw]
-    elif not isinstance(steps_raw, list):
-        steps_raw = []
-
+    steps_raw = candidate.get("steps")
+    if not isinstance(steps_raw, list):
+        raise ValueError("Mission steps must be a list.")
     steps = []
     for item in steps_raw:
         if isinstance(item, dict):
-            item = item.get("text") or item.get("step") or item.get("instruction") or ""
+            item = item.get("text", "")
         step = clean_text(item, "", 240)
         if step:
             steps.append(step)
         if len(steps) >= 5:
             break
-
-    # If the model supplied a title/description but forgot the structured steps,
-    # preserve its personalized content and complete the plan deterministically.
     if len(steps) < 2:
-        activity_hint = clean_text(candidate.get("activity") or candidate.get("title"), "your surroundings", 100)
-        steps = [
-            f"Settle somewhere safe and comfortable, and take a moment to notice {activity_hint.lower()}.",
-            "Slow down and pay attention to one detail, sound, color, or sensation without rushing.",
-            "Choose one small thing you noticed and spend a few final breaths appreciating it.",
-        ]
+        raise ValueError("A mission must include at least two steps.")
     themes = {"forest", "garden", "meadow", "rain", "winter", "coast"}
     theme = clean_text(candidate.get("visual_theme", "forest"), "forest", 20).lower()
     if theme not in themes:
@@ -326,34 +295,17 @@ def validate_mission(candidate, goal, minutes):
         points = int(candidate.get("points", 20))
     except (TypeError, ValueError):
         points = 20
-    duration = max(1, min(180, int(minutes)))
-    # Add a consistent, easy-to-follow timeline even if the small model forgets it.
-    # Divide the requested total across the steps so the timing is explicit and usable.
-    timed_steps = []
-    step_count = len(steps)
-    for index, step in enumerate(steps):
-        start_minute = round(index * duration / step_count)
-        end_minute = round((index + 1) * duration / step_count)
-        if end_minute <= start_minute:
-            end_minute = start_minute + 1
-        if re.match(r"^\s*(?:\d+\s*(?:-|–|to)\s*\d+\s*(?:min|minutes?)|(?:first|next|final)\s+\d+\s+minutes?)\b", step, re.IGNORECASE):
-            timed_steps.append(step)
-        else:
-            timed_steps.append(f"{start_minute}–{end_minute} min: {step}")
-    description = clean_text(candidate.get("description"), "Take a little breathing room and notice the nature around you, at your own pace.", 700)
-    if not re.search(r"\b\d+\s*(?:min|minutes?)\b", description, re.IGNORECASE):
-        description = f"{description.rstrip('. ')}. Give yourself about {duration} minutes for this; there is no need to do it perfectly—just show up and notice one small thing."[:700]
     return {
         "title": clean_text(candidate.get("title"), "A Small Nature Reset", 120),
-        "description": description,
-        "steps": timed_steps,
+        "description": clean_text(candidate.get("description"), "Take a few minutes to notice the natural details around you.", 600),
+        "steps": steps,
         "points": max(5, min(50, points)),
         "impact": clean_text(candidate.get("impact"), "This activity offers a chance to notice and appreciate your surroundings.", 500),
         "activity": clean_text(candidate.get("activity"), candidate.get("title", "Nature activity"), 100),
         "alternative": clean_text(candidate.get("alternative"), "Try a seated or window-based nature observation instead.", 400),
         "visual_theme": theme,
         "goal": clean_text(goal, "General", 100),
-        "duration_minutes": duration,
+        "duration_minutes": max(1, min(180, int(minutes))),
         "ai_rationale": clean_text(candidate.get("ai_rationale"), "This option best fits the preferences and constraints you shared.", 400),
         "difficulty": clean_text(candidate.get("difficulty"), "Gentle", 40),
     }
@@ -383,64 +335,53 @@ def selected_destination_prompt(destination):
 
 
 def generate_mission_candidates(preferences, count=1):
-    """Generate one concise, validated mission using the original local Ollama model.
+    """Fast mission path: AI writes one friendly message; app owns the mission steps.
 
-    llama3.2:1b responds slowly through a laptop tunnel. Asking it for three full JSON
-    candidates caused long generations and truncated JSON, so the stable path requests
-    one high-quality candidate and retains deterministic validation and preference checks.
+    Do not ask the small local model for JSON. The built-in mission templates provide
+    reliable titles, steps, points, and alternatives even when the model writes oddly.
     """
     history = mission_history(20)
     memory = build_memory_summary(history)
-    destination = selected_destination_prompt(preferences.get("destination"))
-    compact_context = {
-        "mood": preferences.get("mood", "unspecified"),
-        "energy": preferences.get("energy", "unspecified"),
-        "minutes": preferences.get("minutes", 10),
-        "goal": preferences.get("goal", "General"),
-        "access": preferences.get("access", "unspecified"),
-        "interests": preferences.get("interests", []),
-        "resources": preferences.get("resources", "none specified"),
-        "accessibility": preferences.get("accessibility", "none specified"),
-        "extra_context": clean_text(preferences.get("extra_context", ""), "", 220),
+    context = {
+        "mood": clean_text(str(preferences.get("mood", "")), "unspecified", 40),
+        "energy": clean_text(str(preferences.get("energy", "")), "unspecified", 40),
+        "minutes": max(1, min(180, int(preferences.get("minutes", 10)))),
+        "goal": clean_text(str(preferences.get("goal", "General")), "General", 60),
+        "access": clean_text(str(preferences.get("access", "")), "unspecified", 60),
+        "interests": clean_text(str(preferences.get("interests", "Any activity")), "Any activity", 100),
     }
-    prompt = f"""Create ONE warm, practical Fresh Air nature mission.
-Preferences: {json.dumps(compact_context, ensure_ascii=False)}
-Place: {destination}
-Memory: {clean_text(memory, 'No previous feedback.', 180)}
-Keep it free, safe, accessible, and realistic; no required purchases or travel, no invented place facts, and no medical promises. Write a personable description of 3 short sentences (about 40–50 words) that speaks directly to the user, mentions the total {compact_context['minutes']} minutes, and feels encouraging rather than robotic. Include exactly 3 simple steps with minute ranges that together cover {compact_context['minutes']} minutes. Include a useful indoor/window alternative. Pick visual_theme from forest, garden, meadow, rain, winter, coast.
-Return ONLY one valid JSON object with keys: title, description, steps (3 strings), points (integer 10–30), impact, activity, alternative, visual_theme, difficulty, ai_rationale, selection_rationale. Keep every field brief. No markdown."""
-    try:
-        # Short output + a resident model makes the common path much faster.
-        raw = call_original_ai(prompt, temperature=0.4, timeout=65, json_mode=True, max_tokens=260)
-        result = parse_json_object(raw)
-    except (requests.RequestException, ValueError, json.JSONDecodeError) as first_error:
-        # One much smaller retry, rather than potentially waiting several minutes.
-        retry_prompt = f"JSON only: create one safe, free Fresh Air mission for {json.dumps(compact_context, ensure_ascii=False)}. Keys: title, description (3 warm sentences, mention {compact_context['minutes']} minutes), steps (3 timed strings), points, impact, activity, alternative, visual_theme, difficulty, ai_rationale, selection_rationale. No markdown."
-        try:
-            raw = call_original_ai(retry_prompt, temperature=0.15, timeout=35, json_mode=True, max_tokens=170)
-            result = parse_json_object(raw)
-        except Exception:
-            raise first_error
-    candidate_data = result
-    if isinstance(result.get("candidates"), list) and result["candidates"]:
-        first_candidate = result["candidates"][0]
-        if isinstance(first_candidate, dict):
-            candidate_data = first_candidate
-    try:
-        candidate = validate_mission(candidate_data, preferences.get("goal", "General"), preferences.get("minutes", 15))
-    except (ValueError, TypeError, AttributeError):
-        raise ValueError("The AI response did not contain a complete, valid mission. Please try again.")
-    rationale = clean_text(result.get("selection_rationale"), "The mission was selected to match your stated preferences and access needs.", 400)
 
-    # Deterministic checks remain in place even though the small model returns one option.
-    combined = (candidate.get("description", "") + " " + " ".join(candidate.get("steps", []))).lower()
-    access = str(preferences.get("access", "")).lower()
-    accessibility = str(preferences.get("accessibility", "")).lower()
-    if "cannot go outside" in access and not any(term in combined for term in ("window", "indoors", "inside", "doorway")):
-        candidate["alternative"] = clean_text(candidate.get("alternative"), "Observe clouds, plants, or natural light from a window.", 400)
-    if "seated" in accessibility and not any(term in combined for term in ("sit", "seated", "chair", "stationary")):
-        candidate["alternative"] = clean_text(candidate.get("alternative"), "Try the activity seated by a window or in a comfortable chair.", 400)
-    return [candidate], rationale, memory
+    # Use the existing, tested mission structure for steps/alternatives. Only the
+    # short, personable intro comes from AI, so malformed JSON can never break a mission.
+    mission = fallback_mission(context["goal"], context["minutes"])
+    prompt = (
+        "Write ONE cute, warm, personable message for a nature-and-wellbeing app. "
+        "Speak directly to the user, like a kind encouraging friend. One or two short "
+        "sentences maximum, under 35 words. No lists, no JSON, no title, no markdown. "
+        "Suggest a tiny doable reset matching these preferences: "
+        + json.dumps(context, ensure_ascii=False)
+        + ". Keep it free, safe, and doable without buying anything or travelling."
+    )
+    try:
+        # One short request only; no JSON mode and no slow retry. Fall back promptly.
+        raw = call_original_ai(prompt, temperature=0.7, timeout=5, json_mode=False, max_tokens=64)
+        message = clean_text(raw, "", 260)
+        message = re.sub(r"^['\"`]+|['\"`]+$", "", message).strip()
+        if message and not message.startswith("{") and len(message.split()) >= 4:
+            mission["description"] = message
+            mission["ai_rationale"] = "A short personalized encouragement was generated by the original Ollama AI."
+            mission["visual_theme"] = {
+                "Nature": "garden", "Stress relief": "rain", "Physical activity": "meadow",
+                "Environmental awareness": "forest", "Mindfulness": "coast",
+            }.get(context["goal"], mission.get("visual_theme", "garden"))
+            rationale = "The AI personalized the welcome message; Fresh Air kept the reliable built-in steps and safety alternatives."
+            return [validate_mission(mission, context["goal"], context["minutes"])], rationale, memory
+    except Exception as exc:
+        # Do not make the user wait through retries or fail the whole mission.
+        st.session_state["mission_generation_error"] = clean_text(str(exc), "AI temporarily unavailable", 220)
+
+    rationale = "Fresh Air used its ready-to-go mission template so you can start right away."
+    return [validate_mission(mission, context["goal"], context["minutes"])], rationale, memory
 
 
 def generate_single_mission(preferences):
@@ -758,63 +699,6 @@ st.markdown(
         -webkit-backdrop-filter: blur(18px);
         box-shadow: 0 16px 45px rgba(0,0,0,0.12);
         margin-bottom: 1rem;
-    }
-
-    .mission-prompt-card {
-        position: relative;
-        overflow: visible;
-        padding-right: 4.6rem;
-    }
-
-    .mission-smiley {
-        position: absolute;
-        top: 1rem;
-        right: 1rem;
-        z-index: 2;
-        display: inline-flex;
-        align-items: center;
-        justify-content: center;
-        width: 2.7rem;
-        height: 2.7rem;
-        border-radius: 50%;
-        background: rgba(255,255,255,0.14);
-        border: 1px solid rgba(255,255,255,0.42);
-        font-size: 1.55rem;
-        line-height: 1;
-        cursor: pointer;
-        user-select: none;
-        transform: rotate(0deg) scale(1);
-        transition: transform 180ms ease, background 180ms ease, box-shadow 180ms ease;
-    }
-
-    .mission-smiley:hover,
-    .mission-smiley:active {
-        background: rgba(168,240,206,0.30);
-        transform: rotate(14deg) scale(1.18);
-        box-shadow: 0 0 0 7px rgba(168,240,206,0.13), 0 8px 24px rgba(0,0,0,0.20);
-    }
-
-    .smiley-message {
-        position: absolute;
-        right: 0;
-        top: 3rem;
-        width: max-content;
-        max-width: 12rem;
-        padding: 0.4rem 0.65rem;
-        border-radius: 999px;
-        color: #123b32;
-        background: #c9ffe4;
-        font: 700 0.75rem 'DM Sans', sans-serif;
-        opacity: 0;
-        transform: translateY(-4px);
-        pointer-events: none;
-        transition: opacity 180ms ease, transform 180ms ease;
-    }
-
-    .mission-smiley:hover .smiley-message,
-    .mission-smiley:active .smiley-message {
-        opacity: 1;
-        transform: translateY(0);
     }
 
     .metric-label {
@@ -1201,7 +1085,9 @@ mission = st.session_state.get("mission")
 if mission:
     st.markdown("---")
     st.markdown('<div class="section-heading">Your AI-planned mission</div>', unsafe_allow_html=True)
-    if not st.session_state.get("mission_used_ai"):
+    if st.session_state.get("mission_used_ai"):
+        st.success(f"Generated by your original Ollama AI: {st.session_state.get('mission_generation_model', OLLAMA_MODEL)}")
+    else:
         st.warning("A built-in fallback mission is shown because the original AI could not be reached.")
         if st.session_state.get("mission_generation_error"):
             with st.expander("AI connection or generation details"):
@@ -1209,7 +1095,7 @@ if mission:
     title = html.escape(str(mission.get("title", "Your mission")))
     description = html.escape(str(mission.get("description", "")))
     impact = html.escape(str(mission.get("impact", "")))
-    st.markdown(f'<div class="glass-card mission-prompt-card" style="background:linear-gradient(120deg,rgba(25,105,92,.82),rgba(55,91,138,.78),rgba(119,81,137,.75));"><span class="mission-smiley" title="You got this! Hover or drag over me for a little encouragement" aria-label="Smiley face: you got this">☺️<span class="smiley-message">You got this!</span></span><div class="metric-label">YOUR NEXT SMALL WIN</div><h2>{title}</h2><p>{description}</p><div class="metric-label">WHY IT MATTERS</div><p>{impact}</p></div>', unsafe_allow_html=True)
+    st.markdown(f'<div class="glass-card" style="background:linear-gradient(120deg,rgba(25,105,92,.82),rgba(55,91,138,.78),rgba(119,81,137,.75));"><div class="metric-label">YOUR NEXT SMALL WIN</div><h2>{title}</h2><p>{description}</p><div class="metric-label">WHY IT MATTERS</div><p>{impact}</p></div>', unsafe_allow_html=True)
     st.caption(f"⏱ About {mission.get('duration_minutes', minutes)} minutes · {html.escape(str(mission.get('difficulty', 'Gentle')))} · +{int(mission.get('points', 20))} points")
     with st.expander("🧠 Why the AI chose this mission", expanded=True):
         st.write(mission.get("ai_rationale", st.session_state.get("agent_rationale", "Chosen to fit your preferences.")))
