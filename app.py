@@ -421,29 +421,475 @@ def run_temporal_mission(preferences):
 
 
 # =========================================================
-# VISUAL DESIGN
+# RESTORED ORIGINAL ANIMATED VISUALS
 # =========================================================
-st.markdown("""
-<style>
-.stApp {background: radial-gradient(circle at 10% 0%, rgba(44,130,100,.28), transparent 35%), linear-gradient(145deg,#071c1a,#102c35 48%,#17263b); color:#f4fbf7;}
-.block-container {max-width:1150px;padding-top:1.4rem;padding-bottom:2rem;}
-.hero {padding:2.4rem 2.2rem;border:1px solid rgba(255,255,255,.16);border-radius:26px;background:linear-gradient(120deg,rgba(18,92,73,.82),rgba(41,76,104,.78),rgba(105,75,119,.76));background-size:220% 220%;animation:airshift 16s ease infinite;box-shadow:0 18px 45px rgba(0,0,0,.18);margin-bottom:1.4rem;}
-.hero .eyebrow {font-size:.75rem;letter-spacing:.2em;font-weight:800;color:#baf6d8;}
-.hero h1 {font-size:clamp(2.7rem,7vw,4.7rem);line-height:1;margin:.55rem 0;font-weight:900;color:#fff;}
-.hero h1 span {color:#a8f0ce;}
-.hero p {font-size:1.08rem;max-width:720px;line-height:1.7;color:#e7f5ef;}
-.section-heading {font-size:1.55rem;font-weight:850;margin:.5rem 0 .2rem;color:#fff;}
-.muted,.stCaption {color:#c6d9d3!important;}
-.glass-card,.step-item {padding:1rem 1.15rem;border:1px solid rgba(255,255,255,.15);border-radius:16px;background:rgba(255,255,255,.075);margin:.4rem 0;}
-.metric-label {font-size:.72rem;letter-spacing:.13em;color:#b8e7d4;font-weight:800;}
-.metric-number {font-size:2rem;font-weight:900;color:white;margin-top:.3rem;}
-.step-item {line-height:1.65;background:rgba(255,255,255,.06);}
-div[data-testid="stForm"] {background:rgba(255,255,255,.035);padding:1rem;border-radius:16px;border:1px solid rgba(255,255,255,.12);}
-@keyframes airshift {0%{background-position:0% 50%}50%{background-position:100% 50%}100%{background-position:0% 50%}}
-@media(prefers-reduced-motion:reduce){.hero{animation:none}}
-</style>
-<div class="hero"><div class="eyebrow">YOUR WORLD. YOUR WELLBEING.</div><h1>Fresh <span>Air.</span></h1><p>An AI field companion that learns what works for you, plans nature missions around real life, and adapts when your day changes.</p></div>
-""", unsafe_allow_html=True)
+# =========================================================
+# ANIMATED ENVIRONMENTAL BACKGROUND
+# =========================================================
+
+# Ollama supplies a small, validated visual theme with each mission. The model
+# selects a scene; CSS handles the actual photographic imagery and animation.
+_existing_mission = st.session_state.get("mission") or {}
+_visual_theme = str(_existing_mission.get("visual_theme", "forest")).strip().lower()
+if _visual_theme not in {"forest", "garden", "meadow", "rain", "winter", "coast"}:
+    _visual_theme = "forest"
+
+st.markdown(
+    """
+    <style>
+    @import url('https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&family=Manrope:wght@400;500;600;700;800&display=swap');
+
+    :root {
+        --ink: #f4faf7;
+        --muted: #d0e1dc;
+        --glass: rgba(10, 30, 34, 0.76);
+        --line: rgba(255,255,255,0.16);
+        --mint: #a8f0ce;
+    }
+
+    html, body, [class*="css"] {
+        font-family: 'DM Sans', sans-serif;
+    }
+
+    .stApp {
+        background: #102e37;
+        color: var(--ink);
+    }
+
+    /* A photographic, layered environment replaces the floating-shape look. */
+    .stApp::before {
+        content: "";
+        position: fixed;
+        inset: 0;
+        z-index: 0;
+        pointer-events: none;
+        background: linear-gradient(180deg, rgba(5, 19, 24, .24) 0%, rgba(5, 24, 27, .30) 44%, rgba(4, 18, 20, .72) 100%);
+    }
+
+    .stApp::after {
+        content: "";
+        position: fixed;
+        inset: 0;
+        z-index: 0;
+        pointer-events: none;
+        background: radial-gradient(ellipse at 50% 5%, rgba(255, 239, 198, .16), transparent 44%),
+                    linear-gradient(90deg, rgba(3, 18, 18, .26), transparent 36%, transparent 70%, rgba(3, 18, 18, .20));
+    }
+
+    .environment {
+        --scene-image: url("https://images.unsplash.com/photo-1448375240586-882707db888b?auto=format&fit=crop&w=2400&q=85");
+        position: fixed;
+        inset: 0;
+        z-index: 0;
+        overflow: hidden;
+        pointer-events: none;
+        isolation: isolate;
+        background: #193b32;
+    }
+    .environment.scene-forest { --scene-image: url("https://images.unsplash.com/photo-1448375240586-882707db888b?auto=format&fit=crop&w=2400&q=85"); }
+    .environment.scene-garden { --scene-image: url("https://images.unsplash.com/photo-1416879595882-3373a0480b5b?auto=format&fit=crop&w=2400&q=85"); }
+    .environment.scene-meadow { --scene-image: url("https://images.unsplash.com/photo-1500530855697-b586d89ba3ee?auto=format&fit=crop&w=2400&q=85"); }
+    .environment.scene-rain { --scene-image: url("https://images.unsplash.com/photo-1511497584788-876760111969?auto=format&fit=crop&w=2400&q=85"); }
+    .environment.scene-winter { --scene-image: url("https://images.unsplash.com/photo-1418985991508-e47386d96a71?auto=format&fit=crop&w=2400&q=85"); }
+    .environment.scene-coast { --scene-image: url("https://images.unsplash.com/photo-1500375592092-40eb2168fd21?auto=format&fit=crop&w=2400&q=85"); }
+
+    /* A cinematic scene carousel: photographic locations crossfade every six seconds. */
+    .environment .scene-stack { position:absolute; inset:-4%; overflow:hidden; }
+    .environment .scene-slide {
+        position:absolute; inset:0; background-size:cover; background-position:center 48%;
+        opacity:0; transform:scale(1.04); filter:saturate(.96) contrast(1.04);
+        animation: sceneCrossfade 36s ease-in-out infinite, landscapeDrift 24s ease-in-out infinite alternate;
+        will-change:opacity,transform;
+    }
+    .environment .scene-slide::after {
+        content:""; position:absolute; inset:0;
+        background:linear-gradient(180deg,rgba(10,29,29,.04) 0%,rgba(8,28,25,.12) 38%,rgba(4,18,17,.62) 100%);
+    }
+    .environment .scene-slide.primary { background-image:var(--scene-image); animation-delay:0s, -5s; }
+    .environment .scene-slide.garden { background-image:url("https://images.unsplash.com/photo-1416879595882-3373a0480b5b?auto=format&fit=crop&w=2400&q=85"); animation-delay:-30s,-11s; }
+    .environment .scene-slide.meadow { background-image:url("https://images.unsplash.com/photo-1500530855697-b586d89ba3ee?auto=format&fit=crop&w=2400&q=85"); animation-delay:-24s,-8s; }
+    .environment .scene-slide.rain { background-image:url("https://images.unsplash.com/photo-1511497584788-876760111969?auto=format&fit=crop&w=2400&q=85"); animation-delay:-18s,-13s; }
+    .environment .scene-slide.winter { background-image:url("https://images.unsplash.com/photo-1418985991508-e47386d96a71?auto=format&fit=crop&w=2400&q=85"); animation-delay:-12s,-4s; }
+    .environment .scene-slide.coast { background-image:url("https://images.unsplash.com/photo-1500375592092-40eb2168fd21?auto=format&fit=crop&w=2400&q=85"); animation-delay:-6s,-10s; }
+    @keyframes sceneCrossfade {
+        0%, 15% { opacity:1; }
+        19%, 96% { opacity:0; }
+        100% { opacity:1; }
+    }
+    .environment .scene-slide.garden { animation-name:sceneCrossfade, landscapeDrift; }
+    .environment .scene-slide.meadow { animation-name:sceneCrossfade, landscapeDrift; }
+    .environment .scene-slide.rain { animation-name:sceneCrossfade, landscapeDrift; }
+    .environment .scene-slide.winter { animation-name:sceneCrossfade, landscapeDrift; }
+    .environment .scene-slide.coast { animation-name:sceneCrossfade, landscapeDrift; }
+    .environment .light-haze {
+        position: absolute;
+        inset: -20%;
+        background: radial-gradient(ellipse at 72% 17%, rgba(255, 226, 165, .22), transparent 27%),
+                    radial-gradient(ellipse at 15% 55%, rgba(127, 214, 173, .12), transparent 35%);
+        mix-blend-mode: screen;
+        animation: hazeDrift 28s ease-in-out infinite alternate;
+    }
+    .environment .depth-vignette {
+        position: absolute;
+        inset: 0;
+        box-shadow: inset 0 0 170px rgba(2, 15, 15, .48);
+    }
+
+    /* Restrained weather overlays: visible, but never the main subject. */
+    .environment .rain-layer {
+        position: absolute;
+        inset: -25% -10%;
+        opacity: 0;
+        background-image: repeating-linear-gradient(108deg, transparent 0 28px, rgba(225, 244, 250, .42) 29px, transparent 30px 48px);
+        background-size: 90px 120px;
+        animation: rainDrift 1.1s linear infinite;
+    }
+    .environment.scene-rain .rain-layer { opacity: .26; }
+    .environment .snow-layer {
+        position: absolute;
+        inset: -5% 0 0;
+        opacity: 0;
+        background-image: radial-gradient(circle, rgba(255,255,255,.92) 0 1.2px, transparent 2px),
+                          radial-gradient(circle, rgba(255,255,255,.72) 0 2px, transparent 3px),
+                          radial-gradient(circle, rgba(255,255,255,.8) 0 1px, transparent 2px);
+        background-size: 91px 105px, 151px 169px, 63px 77px;
+        animation: snowDrift 18s linear infinite;
+    }
+    .environment.scene-winter .snow-layer { opacity: .58; }
+    .environment .wind-layer {
+        position: absolute;
+        inset: 0;
+        opacity: .18;
+        background: repeating-linear-gradient(174deg, transparent 0 95px, rgba(232, 249, 239, .22) 96px, transparent 98px 155px);
+        mask-image: linear-gradient(90deg, transparent, black 28%, black 75%, transparent);
+        animation: windDrift 13s ease-in-out infinite alternate;
+    }
+
+    /* Realistic foliage photography at the lower edges anchors the scene. */
+    .environment .foliage {
+        position: absolute;
+        bottom: -5%;
+        width: min(38vw, 470px);
+        height: 47vh;
+        min-height: 250px;
+        background-image: url("https://images.unsplash.com/photo-1497250681960-ef046c08a56e?auto=format&fit=crop&w=1000&q=85");
+        background-size: cover;
+        background-position: center;
+        opacity: .45;
+        filter: saturate(.88) brightness(.66) contrast(1.08);
+        -webkit-mask-image: linear-gradient(to top, #000 0%, #000 45%, transparent 100%);
+        mask-image: linear-gradient(to top, #000 0%, #000 45%, transparent 100%);
+        animation: foliageSway 15s ease-in-out infinite alternate;
+    }
+    .environment .foliage.left { left: -9%; transform-origin: bottom left; animation: foliageSway 7.5s ease-in-out infinite alternate; }
+    .environment .foliage.right { right: -9%; transform: scaleX(-1); transform-origin: bottom right; animation: foliageSway 9s ease-in-out infinite alternate-reverse; animation-delay: -3s; }
+    /* Soft moving light flecks mimic wind through a canopy, rather than floating geometric shapes. */
+    .environment .canopy-light {
+        position:absolute; inset:-12%; opacity:.2; mix-blend-mode:screen;
+        background:radial-gradient(ellipse at 20% 24%,rgba(246,255,213,.22),transparent 13%),
+                   radial-gradient(ellipse at 76% 36%,rgba(197,255,222,.16),transparent 17%),
+                   radial-gradient(ellipse at 54% 8%,rgba(255,238,186,.17),transparent 19%);
+        animation: canopyMove 19s ease-in-out infinite alternate; pointer-events:none;
+    }
+
+    @keyframes landscapeDrift {
+        from { transform: scale(1.06) translate3d(-.4%, 0, 0); }
+        to { transform: scale(1.13) translate3d(.5%, -1%, 0); }
+    }
+    @keyframes hazeDrift {
+        from { transform: translate3d(-1.5%, .5%, 0) scale(1); opacity: .65; }
+        to { transform: translate3d(1.5%, -1%, 0) scale(1.05); opacity: 1; }
+    }
+    @keyframes rainDrift { from { transform: translate3d(-2%, -3%, 0); } to { transform: translate3d(3%, 9%, 0); } }
+    @keyframes snowDrift { from { transform: translate3d(-1%, -3%, 0); } to { transform: translate3d(2%, 8%, 0); } }
+    @keyframes windDrift { from { transform: translateX(-2%); opacity: .08; } to { transform: translateX(2%); opacity: .22; } }
+    @keyframes foliageSway { from { transform:rotate(-1.2deg) scale(1.02); background-position:48% 50%; } to { transform:rotate(1.8deg) scale(1.07); background-position:53% 50%; } }
+    @keyframes canopyMove { from { transform:translate3d(-2%,0,0) scale(1); opacity:.12; } to { transform:translate3d(2%,-1.5%,0) scale(1.08); opacity:.3; } }
+
+    @media (prefers-reduced-motion: reduce) {
+        .environment *, .environment::before, .environment::after { animation: none !important; }
+    }
+
+    /* Ensure Streamlit content appears above scenery */
+    [data-testid="stAppViewContainer"],
+    [data-testid="stHeader"],
+    [data-testid="stMain"],
+    [data-testid="stMainBlockContainer"] {
+        position: relative;
+        z-index: 1;
+        background: transparent !important;
+    }
+
+    [data-testid="stHeader"] {
+        background: transparent !important;
+    }
+
+    [data-testid="stMainBlockContainer"] {
+        padding-top: 2rem;
+        padding-bottom: 4rem;
+        max-width: 1150px;
+    }
+
+    @media (max-width: 700px) {
+        .plant { opacity:.55; transform:scale(.52); }
+        .plant.left { left:-62px; }
+        .plant.right { right:-62px; }
+        .crystal { opacity:.55; }
+        .wind-streaks { opacity:.18; }
+    }
+
+    .hero {
+        padding: 2.1rem 0 1.2rem;
+        text-align: left;
+    }
+
+    .eyebrow {
+        color: var(--mint);
+        font-size: 0.76rem;
+        font-weight: 700;
+        text-transform: uppercase;
+        letter-spacing: 0.19em;
+        margin-bottom: 0.75rem;
+    }
+
+    .hero h1 {
+        font-family: 'Manrope', sans-serif;
+        font-size: clamp(2.8rem, 7vw, 5.4rem);
+        line-height: 1.02;
+        font-weight: 800;
+        letter-spacing: -0.065em;
+        color: #ffffff;
+        margin: 0;
+        text-shadow: 0 3px 30px rgba(0,0,0,0.15);
+    }
+
+    .hero h1 span {
+        color: #a8f0ce;
+    }
+
+    .hero p {
+        color: #e0eeea;
+        font-size: 1.08rem;
+        max-width: 650px;
+        line-height: 1.8;
+        margin-top: 1.15rem;
+    }
+
+    .section-heading {
+        font-family: 'Manrope', sans-serif;
+        font-size: 1.45rem;
+        font-weight: 800;
+        letter-spacing: -0.035em;
+        color: #ffffff;
+        margin: 0.7rem 0 0.2rem;
+    }
+
+    .muted {
+        color: var(--muted);
+        line-height: 1.65;
+    }
+
+    .glass-card {
+        background: var(--glass);
+        border: 1px solid var(--line);
+        border-radius: 22px;
+        padding: 1.25rem;
+        backdrop-filter: blur(18px);
+        -webkit-backdrop-filter: blur(18px);
+        box-shadow: 0 16px 45px rgba(0,0,0,0.12);
+        margin-bottom: 1rem;
+    }
+
+    .metric-label {
+        color: #d0e1dc;
+        font-size: 0.83rem;
+        font-weight: 600;
+    }
+
+    .metric-number {
+        color: white;
+        font-family: 'Manrope', sans-serif;
+        font-size: 2rem;
+        font-weight: 800;
+        letter-spacing: -0.05em;
+        margin-top: 0.2rem;
+    }
+
+    .mission-label {
+        color: #a8f0ce;
+        font-size: 0.75rem;
+        font-weight: 700;
+        letter-spacing: 0.13em;
+        text-transform: uppercase;
+    }
+
+    .mission-title {
+        color: #ffffff;
+        font-family: 'Manrope', sans-serif;
+        font-size: 1.65rem;
+        font-weight: 800;
+        line-height: 1.25;
+        margin: 0.45rem 0 0.75rem;
+    }
+
+    .mission-description {
+        color: #e0eeea;
+        line-height: 1.75;
+        font-size: 1rem;
+    }
+
+    .step-item {
+        padding: 0.65rem 0;
+        border-bottom: 1px solid rgba(255,255,255,0.10);
+        color: #eef7f3;
+        line-height: 1.6;
+    }
+
+    .step-item:last-child {
+        border-bottom: none;
+    }
+
+    /* Inputs */
+    [data-testid="stWidgetLabel"] p {
+        color: #f1faf6 !important;
+        font-weight: 600 !important;
+    }
+
+    div[data-baseweb="select"] > div,
+    div[data-baseweb="input"] > div,
+    div[data-baseweb="textarea"] > div {
+        background: rgba(255,255,255,0.94) !important;
+        border: 1px solid rgba(255,255,255,0.4) !important;
+        border-radius: 12px !important;
+    }
+
+    div[data-baseweb="select"] *,
+    div[data-baseweb="input"] input,
+    div[data-baseweb="textarea"] textarea {
+        color: #173c3d !important;
+    }
+
+    .stSlider [data-testid="stTickBar"] {
+        color: white;
+    }
+
+    /* Buttons */
+    .stButton > button,
+    .stFormSubmitButton > button {
+        border-radius: 13px;
+        border: 1px solid rgba(255,255,255,0.25);
+        padding: 0.7rem 1rem;
+        font-weight: 700;
+        transition: all 0.2s ease;
+    }
+
+    .stButton > button[kind="primary"],
+    .stFormSubmitButton > button {
+        background: #a8f0ce;
+        color: #143a35;
+        border: none;
+    }
+
+    .stButton > button[kind="primary"]:hover,
+    .stFormSubmitButton > button:hover {
+        background: #d0ffe7;
+        color: #143a35;
+        transform: translateY(-2px);
+    }
+
+    .stButton > button[kind="secondary"] {
+        background: rgba(255,255,255,0.10);
+        color: white;
+    }
+
+    /* General text and separators */
+    [data-testid="stMarkdownContainer"] p,
+    [data-testid="stMarkdownContainer"] li {
+        color: #f0f7f4;
+    }
+
+    hr {
+        border-color: rgba(255,255,255,0.16) !important;
+    }
+
+    [data-testid="stAlert"] {
+        border-radius: 14px;
+    }
+
+    @media (max-width: 700px) {
+        [data-testid="stMainBlockContainer"] {
+            padding: 1rem 1rem 3rem;
+        }
+
+        .hero {
+            padding-top: 1.4rem;
+        }
+
+        .hero h1 {
+            font-size: 3rem;
+        }
+
+        .hero p {
+            font-size: 0.98rem;
+        }
+
+        .glass-card {
+            padding: 1rem;
+            border-radius: 18px;
+        }
+
+        .sun {
+            width: 70px;
+            height: 70px;
+        }
+    }
+
+    @media (prefers-reduced-motion: reduce) {
+        .environment,
+        .sun,
+        .cloud,
+        .mountain,
+        .glacier,
+        .forest,
+        .waves, .orb, .crystal, .plant, .wind-streaks span {
+            animation: none !important;
+        }
+        .environment::before, .environment::after { animation:none !important; }
+    }
+    </style>
+
+    <div class="environment scene-__VISUAL_THEME__" id="fresh-air-environment">
+        <div class="scene-stack" aria-hidden="true">
+            <div class="scene-slide primary"></div>
+            <div class="scene-slide garden"></div>
+            <div class="scene-slide meadow"></div>
+            <div class="scene-slide rain"></div>
+            <div class="scene-slide winter"></div>
+            <div class="scene-slide coast"></div>
+        </div>
+        <div class="light-haze"></div>
+        <div class="canopy-light"></div>
+        <div class="rain-layer"></div>
+        <div class="snow-layer"></div>
+        <div class="wind-layer"></div>
+        <div class="foliage left"></div>
+        <div class="foliage right"></div>
+        <div class="depth-vignette"></div>
+    </div>
+    """.replace("__VISUAL_THEME__", _visual_theme),
+    unsafe_allow_html=True,
+)
+
+st.markdown(
+    """
+    <div class="hero">
+        <div class="eyebrow">YOUR WORLD. YOUR WELLBEING.</div>
+        <h1>Fresh <span>Air.</span></h1>
+        <p>An AI field companion that learns what works for you, plans nature missions around real life, and adapts when your day changes.</p>
+    </div>
+    """,
+    unsafe_allow_html=True,
+)
 
 # =========================================================
 # AI STATUS + SIDEBAR
