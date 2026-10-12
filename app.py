@@ -273,20 +273,40 @@ def generate_mission_audio(text):
 def validate_mission(candidate, goal, minutes):
     if not isinstance(candidate, dict):
         raise ValueError("Mission response must be a JSON object.")
-    steps_raw = candidate.get("steps")
-    if not isinstance(steps_raw, list):
-        raise ValueError("Mission steps must be a list.")
+
+    # Small local models sometimes return a valid JSON object but format `steps`
+    # as a paragraph/string, omit a step, or wrap each step in a slightly different
+    # shape. Normalize those cases instead of discarding an otherwise useful AI mission.
+    steps_raw = candidate.get("steps", [])
+    if isinstance(steps_raw, str):
+        # First try splitting numbered/bulleted lines; if it is one paragraph,
+        # keep it as one candidate step and let the safe step builder fill gaps.
+        split_steps = re.split(r"\n+|(?<=\.)\s+(?=(?:\d+[.)]|[-•]))", steps_raw)
+        steps_raw = [re.sub(r"^\s*(?:\d+[.)]|[-•])\s*", "", part).strip() for part in split_steps]
+    elif isinstance(steps_raw, dict):
+        steps_raw = [steps_raw]
+    elif not isinstance(steps_raw, list):
+        steps_raw = []
+
     steps = []
     for item in steps_raw:
         if isinstance(item, dict):
-            item = item.get("text", "")
+            item = item.get("text") or item.get("step") or item.get("instruction") or ""
         step = clean_text(item, "", 240)
         if step:
             steps.append(step)
         if len(steps) >= 5:
             break
+
+    # If the model supplied a title/description but forgot the structured steps,
+    # preserve its personalized content and complete the plan deterministically.
     if len(steps) < 2:
-        raise ValueError("A mission must include at least two steps.")
+        activity_hint = clean_text(candidate.get("activity") or candidate.get("title"), "your surroundings", 100)
+        steps = [
+            f"Settle somewhere safe and comfortable, and take a moment to notice {activity_hint.lower()}.",
+            "Slow down and pay attention to one detail, sound, color, or sensation without rushing.",
+            "Choose one small thing you noticed and spend a few final breaths appreciating it.",
+        ]
     themes = {"forest", "garden", "meadow", "rain", "winter", "coast"}
     theme = clean_text(candidate.get("visual_theme", "forest"), "forest", 20).lower()
     if theme not in themes:
@@ -391,7 +411,9 @@ Return ONLY one valid JSON object with these keys: title, description, steps (ar
             raise first_error
     candidate_data = result
     if isinstance(result.get("candidates"), list) and result["candidates"]:
-        candidate_data = result["candidates"][0]
+        first_candidate = result["candidates"][0]
+        if isinstance(first_candidate, dict):
+            candidate_data = first_candidate
     try:
         candidate = validate_mission(candidate_data, preferences.get("goal", "General"), preferences.get("minutes", 15))
     except (ValueError, TypeError, AttributeError):
