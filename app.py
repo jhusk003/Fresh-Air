@@ -8,6 +8,9 @@ import uuid
 from datetime import datetime, timezone
 
 import streamlit as st
+# Initialize Streamlit session state safely
+if "mission" not in st.session_state:
+    st.session_state["mission"] = None
 from dotenv import load_dotenv
 from google import genai
 
@@ -1021,7 +1024,7 @@ if st.button("🎧 Listen to My Mission"):
 # CURRENT MISSION
 # =========================================================
 
-if st.session_state.mission:
+if st.session_state.get("mission") is not None:
     mission = st.session_state.mission
 
     st.markdown("---")
