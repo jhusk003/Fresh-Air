@@ -172,6 +172,38 @@ st.set_page_config(
     initial_sidebar_state="collapsed",
 )
 
+# Initialize every session-state key before any UI branch uses it.
+# Streamlit reruns this file after interactions, so all keys must have safe defaults.
+_SESSION_DEFAULTS = {
+    "mission": None,
+    "mission_number": 0,
+    "mission_completed": False,
+    "mission_used_ai": False,
+    "mission_generation_note": "",
+    "mission_generation_model": "",
+    "mission_generation_source": "",
+    "mission_generation_error": None,
+    "current_mission_id": None,
+    "last_inputs": {},
+    "completed": [],
+    "completed_mission_ids": [],
+    "points": 0,
+    "last_completed_points": 0,
+    "last_completed_duration": 0,
+    "journal": [],
+    "destination_results": [],
+    "destination_search_location": "",
+    "selected_destination": None,
+    "destination_choice": "No specific destination",
+    "ai_model_test": None,
+}
+for _state_key, _state_default in _SESSION_DEFAULTS.items():
+    if _state_key not in st.session_state:
+        # Lists and dictionaries need a fresh object for each new session.
+        st.session_state[_state_key] = (
+            _state_default.copy() if isinstance(_state_default, (list, dict)) else _state_default
+        )
+
 with st.sidebar:
     st.header("⚙️ Mission Settings")
     provider_options = {
@@ -1001,7 +1033,7 @@ if st.button("✨ Create My Mission", type="primary", use_container_width=True):
         st.session_state.mission = mission
         st.session_state.current_mission_id = str(uuid.uuid4())
         st.session_state.mission_completed = False
-        st.session_state.mission_number += 1
+        st.session_state["mission_number"] = int(st.session_state.get("mission_number", 0) or 0) + 1
         st.session_state.last_inputs = preferences
         st.session_state.mission_used_ai = used_ai
         # Rerun so the newly generated mission renders directly below the Create My Mission button.
@@ -1068,7 +1100,7 @@ if st.button("🎧 Listen to My Mission"):
 # CURRENT MISSION
 # =========================================================
 
-if st.session_state.mission:
+if st.session_state.get("mission") is not None:
     mission = st.session_state.mission
 
     st.markdown("---")
