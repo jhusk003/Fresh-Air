@@ -173,61 +173,168 @@ st.set_page_config(
 
 with st.sidebar:
     st.header("⚙️ Mission Settings")
-    selected_model = st.selectbox(
-        "Ollama model",
-        options=list(dict.fromkeys([get_setting("OLLAMA_MODEL", "llama3.2:1b"), "llama3.2:1b", "gemma2:2b"])),
-        index=0,
-        help="Choose a model available on the Ollama server configured for this deployment.",
+    provider_options = {
+        "Gemini API (hosted; recommended for Render)": "gemini",
+        "Ollama (self-hosted server)": "ollama",
+    }
+    _configured_provider = get_setting("AI_PROVIDER", "gemini").strip().lower()
+    _default_provider_label = (
+        "Ollama (self-hosted server)"
+        if _configured_provider == "ollama"
+        else "Gemini API (hosted; recommended for Render)"
     )
-    st.caption(
-        "Mission generation uses the Ollama server in OLLAMA_URL. For a cloud deployment, "
-        "that must be a reachable hosted Ollama endpoint; localhost refers to the app container. "
-        "Audio and destination search use external services only when requested."
+    selected_provider_label = st.selectbox(
+        "AI provider",
+        options=list(provider_options.keys()),
+        index=list(provider_options.keys()).index(_default_provider_label),
+        help="Gemini calls a hosted API directly. Ollama requires a reachable server.",
     )
+    AI_PROVIDER = provider_options[selected_provider_label]
+
+    if AI_PROVIDER == "gemini":
+        _gemini_default = get_setting("GEMINI_MODEL", "gemini-3.5-flash-lite")
+        _gemini_models = list(dict.fromkeys([
+            _gemini_default, "gemini-3.5-flash-lite", "gemini-3.5-flash", "gemini-3.8-flash"
+        ]))
+        selected_model = st.selectbox(
+            "Gemini model",
+            options=_gemini_models,
+            index=0,
+            help="Choose a model enabled for your Google AI Studio API key. Free-tier access and limits vary by model and account.",
+        )
+        st.caption("Mission generation uses Google's hosted Gemini API. The API key stays in Render Environment variables; it is not written into the app code.")
+    else:
+        _ollama_default = get_setting("OLLAMA_MODEL", "gemma2:2b")
+        selected_model = st.selectbox(
+            "Ollama model",
+            options=list(dict.fromkeys([_ollama_default, "gemma2:2b", "llama3.2:1b"])),
+            index=0,
+            help="Choose a model installed on the Ollama server configured for this deployment.",
+        )
+        st.caption("Ollama must be hosted separately and reachable from Render. localhost refers to the app container, not your laptop.")
+
     st.caption(f"**Selected model:** `{selected_model}`")
     if st.button("🧪 Test selected model", use_container_width=True):
-        _test_base = get_setting("OLLAMA_URL", "http://localhost:11434").rstrip("/")
-        if _test_base.endswith("/api/generate"):
-            _test_base = _test_base[:-len("/api/generate")]
-        try:
-            _test_response = requests.post(
-                f"{_test_base}/api/show",
-                json={"model": selected_model},
-                timeout=(5, 20),
-            )
-            if _test_response.ok:
-                st.session_state["ollama_model_test"] = {
-                    "model": selected_model,
-                    "ok": True,
-                    "message": f"{selected_model} is available on the configured Ollama server.",
+        if AI_PROVIDER == "gemini":
+            _gemini_key = get_setting("GEMINI_API_KEY")
+            if not _gemini_key:
+                st.session_state["ai_model_test"] = {
+                    "provider": AI_PROVIDER, "model": selected_model, "ok": False,
+                    "message": "GEMINI_API_KEY is missing. Add your Google AI Studio API key in Render → your service → Environment.",
                 }
             else:
                 try:
-                    _test_detail = _test_response.json().get("error", _test_response.text)
-                except Exception:
-                    _test_detail = _test_response.text
-                st.session_state["ollama_model_test"] = {
-                    "model": selected_model,
-                    "ok": False,
-                    "message": str(_test_detail)[:350] or f"Ollama returned HTTP {_test_response.status_code}.",
-                }
-        except requests.RequestException as _test_error:
-            st.session_state["ollama_model_test"] = {
-                "model": selected_model,
-                "ok": False,
-                "message": str(_test_error)[:350],
-            }
-    _model_test = st.session_state.get("ollama_model_test")
-    if _model_test and _model_test.get("model") == selected_model:
-        if _model_test.get("ok"):
-            st.success(_model_test.get("message", "Model available."))
+                    _test_response = requests.post(
+                        f"https://generativelanguage.googleapis.com/v1beta/models/{selected_model}:generateContent",
+                        headers={"x-goog-api-key": _gemini_key, "Content-Type": "application/json"},
+                        json={
+                            "contents": [{"parts": [{"text": "Reply with exactly: Fresh Air AI connection successful."}]}],
+                            "generationConfig": {"temperature": 0, "maxOutputTokens": 40},
+                        },
+                        timeout=(5, 30),
+                    )
+                    if _test_response.ok:
+                        st.session_state["ai_model_test"] = {
+                            "provider": AI_PROVIDER, "model": selected_model, "ok": True,
+                            "message": f"Gemini API connection successful for {selected_model}.",
+                        }
+                    else:
+                        try:
+                            _test_detail = _test_response.json().get("error", {}).get("message", _test_response.text)
+                        except Exception:
+                            _test_detail = _test_response.text
+                        st.session_state["ai_model_test"] = {
+                            "provider": AI_PROVIDER, "model": selected_model, "ok": False,
+                            "message": str(_test_detail)[:350] or f"Gemini returned HTTP {_test_response.status_code}.",
+                        }
+                except requests.RequestException as _test_error:
+                    st.session_state["ai_model_test"] = {
+                        "provider": AI_PROVIDER, "model": selected_model, "ok": False,
+                        "message": str(_test_error)[:350],
+                    }
         else:
-            st.error(f"Model test failed: {_model_test.get('message', 'Unknown Ollama error')}")
+            _test_base = str(get_setting("OLLAMA_URL", "http://localhost:11434")).strip().rstrip("/")
+            if _test_base.lower() in {"false", "true", "none", "null", "0", "1"}:
+                _test_message = "OLLAMA_URL is not a valid URL. Use the base URL of a reachable Ollama server."
+                _test_ok = False
+            elif not _test_base.startswith(("http://", "https://")):
+                _test_message = "OLLAMA_URL must begin with http:// or https://."
+                _test_ok = False
+            else:
+                if _test_base.endswith("/api/generate"):
+                    _test_base = _test_base[:-len("/api/generate")]
+                try:
+                    _test_response = requests.post(f"{_test_base}/api/show", json={"model": selected_model}, timeout=(5, 20))
+                    _test_ok = _test_response.ok
+                    if _test_ok:
+                        _test_message = f"{selected_model} is available on the configured Ollama server."
+                    else:
+                        try:
+                            _test_message = str(_test_response.json().get("error", _test_response.text))[:350]
+                        except Exception:
+                            _test_message = _test_response.text[:350]
+                except requests.RequestException as _test_error:
+                    _test_ok = False
+                    _test_message = str(_test_error)[:350]
+            st.session_state["ai_model_test"] = {
+                "provider": AI_PROVIDER, "model": selected_model, "ok": _test_ok, "message": _test_message,
+            }
+
+    _model_test = st.session_state.get("ai_model_test")
+    if _model_test and _model_test.get("provider") == AI_PROVIDER and _model_test.get("model") == selected_model:
+        if _model_test.get("ok"):
+            st.success(_model_test.get("message", "AI model available."))
+        else:
+            st.error(f"Model test failed: {_model_test.get('message', 'Unknown AI provider error')}")
 
 MODEL = selected_model
-OLLAMA_BASE_URL = get_setting("OLLAMA_URL", "http://localhost:11434").rstrip("/")
-OLLAMA_URL = OLLAMA_BASE_URL if OLLAMA_BASE_URL.endswith("/api/generate") else f"{OLLAMA_BASE_URL}/api/generate"
-DEFAULT_MODEL = get_setting("OLLAMA_MODEL", "llama3.2:1b")
+DEFAULT_MODEL = get_setting("GEMINI_MODEL", "gemini-3.5-flash-lite") if AI_PROVIDER == "gemini" else get_setting("OLLAMA_MODEL", "gemma2:2b")
+
+
+def get_ollama_generate_url():
+    """Validate OLLAMA_URL and build the Ollama generate endpoint."""
+    base_url = str(get_setting("OLLAMA_URL", "http://localhost:11434")).strip().rstrip("/")
+    if base_url.lower() in {"false", "true", "none", "null", "0", "1"}:
+        raise ValueError("OLLAMA_URL is not a valid URL. Set it to the base URL of a reachable Ollama server.")
+    if not base_url.startswith(("http://", "https://")):
+        raise ValueError("OLLAMA_URL must be a full URL beginning with http:// or https://.")
+    return base_url if base_url.endswith("/api/generate") else f"{base_url}/api/generate"
+
+
+def generate_with_gemini(prompt, model):
+    """Generate JSON text with Google's hosted Gemini API."""
+    api_key = get_setting("GEMINI_API_KEY")
+    if not api_key:
+        raise ValueError("GEMINI_API_KEY is missing. Add it in Render → Environment.")
+    url = f"https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent"
+    response = requests.post(
+        url,
+        headers={"x-goog-api-key": api_key, "Content-Type": "application/json"},
+        json={
+            "contents": [{"parts": [{"text": prompt}]}],
+            "generationConfig": {
+                "temperature": 0.7,
+                "responseMimeType": "application/json",
+                "maxOutputTokens": 1200,
+            },
+        },
+        timeout=(5, 75),
+    )
+    if not response.ok:
+        try:
+            detail = response.json().get("error", {}).get("message", response.text)
+        except Exception:
+            detail = response.text
+        raise RuntimeError(f"Gemini API error ({response.status_code}): {str(detail)[:300]}")
+    data = response.json()
+    candidates = data.get("candidates", [])
+    if not candidates:
+        raise ValueError("Gemini returned no response. Check API limits and the prompt.")
+    parts = candidates[0].get("content", {}).get("parts", [])
+    raw_text = "".join(part.get("text", "") for part in parts if isinstance(part, dict))
+    if not raw_text.strip():
+        raise ValueError("Gemini returned an empty response.")
+    return raw_text
 
 # =========================================================
 # ANIMATED ENVIRONMENTAL BACKGROUND
@@ -959,27 +1066,33 @@ Use exactly this JSON structure:
         )
 
     try:
-        response = requests.post(
-            OLLAMA_URL,
-            json={
-                "model": MODEL,
-                "prompt": prompt,
-                "stream": False,
-                "format": "json",
-                "options": {"temperature": 0.7},
-            },
-            timeout=(5, 75),
-        )
-        response.raise_for_status()
-        result = response.json()
-        raw_text = result.get("response", "") if isinstance(result, dict) else ""
+        if AI_PROVIDER == "gemini":
+            raw_text = generate_with_gemini(prompt, MODEL)
+            source = "Direct Gemini API"
+        else:
+            ollama_generate_url = get_ollama_generate_url()
+            response = requests.post(
+                ollama_generate_url,
+                json={
+                    "model": MODEL,
+                    "prompt": prompt,
+                    "stream": False,
+                    "format": "json",
+                    "options": {"temperature": 0.7},
+                },
+                timeout=(5, 75),
+            )
+            response.raise_for_status()
+            result = response.json()
+            raw_text = result.get("response", "") if isinstance(result, dict) else ""
+            source = "Direct Ollama"
         if not isinstance(raw_text, str) or not raw_text.strip():
             raise ValueError("The model returned an empty response.")
         candidate = json.loads(raw_text)
         mission = validate_mission(candidate, goal)
         st.session_state["mission_generation_note"] = "ai"
         st.session_state["mission_generation_model"] = MODEL
-        st.session_state["mission_generation_source"] = "Direct Ollama"
+        st.session_state["mission_generation_source"] = source
         st.session_state.pop("mission_generation_error", None)
         return mission, True
 
@@ -1367,7 +1480,7 @@ use_temporal = st.checkbox(
     "Use Temporal retry workflow (requires Temporal server and worker)",
     value=False,
     help="Generation and validation run as retryable Temporal activities. "
-         "If Temporal is unavailable, the app falls back to local Ollama.",
+         "If Temporal is unavailable, the app falls back to direct AI generation through the selected provider.",
 )
 
 if st.button("✨ Create My Mission", type="primary", use_container_width=True):
@@ -1498,14 +1611,12 @@ if st.session_state.mission:
     if st.session_state.get("mission_used_ai", False):
         _actual_model = st.session_state.get("mission_generation_model", MODEL)
         _generation_source = st.session_state.get("mission_generation_source", "Ollama")
-        if _generation_source == "Direct Ollama":
+        if _generation_source == "Direct Gemini API":
+            st.success(f"AI mission generated successfully with hosted Gemini model: {_actual_model}")
+        elif _generation_source == "Direct Ollama":
             st.success(f"AI mission generated successfully with Ollama model: {_actual_model}")
-            if "gemma" in str(_actual_model).lower():
-                st.info("Confirmed: this mission was generated directly by the selected Gemma model.")
         else:
             st.success(f"AI mission generation reported by {_generation_source}. Selected model: {_actual_model}")
-            if "gemma" in str(_actual_model).lower():
-                st.info("Gemma is the selected model for this workflow. For direct confirmation, disable Temporal and generate a mission with Gemma selected.")
     else:
         st.warning(
             f"A ready-to-go fallback mission was used; the selected AI model ({st.session_state.get('mission_generation_model', MODEL)}) did not successfully generate this mission."
@@ -1515,8 +1626,9 @@ if st.session_state.mission:
             with st.expander("Why the AI model did not run"):
                 st.code(_generation_error)
         st.caption(
-            "Check that the selected model is installed on the configured Ollama server, "
-            "that OLLAMA_URL is reachable, and that the model can return valid JSON."
+            "Check the selected AI provider's API key, model access, quota, and connection. "
+            "For Gemini, confirm GEMINI_API_KEY and GEMINI_MODEL in Render Environment. "
+            "For Ollama, confirm OLLAMA_URL is a reachable hosted endpoint."
         )
 
     safe_mission_title = html.escape(str(mission.get("title", "Your mission")))
@@ -1812,7 +1924,7 @@ st.markdown(
         </p>
         <p style="font-size:0.72rem; opacity:0.8;">
             Fresh Air is a prototype for outdoor engagement and community action.
-            It does not diagnose or treat mental health conditions. Mission ideas use Ollama;
+            It does not diagnose or treat mental health conditions. Mission ideas use the selected AI provider;
             mission history is session-only; optional voice and place search use ElevenLabs and SerpApi.
         </p>
     </div>
