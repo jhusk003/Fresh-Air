@@ -1,4 +1,4 @@
-# Fresh Air 🌿 — AI-Powered Nature Missions
+# Fresh Air 🌿 : AI-Powered Nature Missions
 
 **Reconnect with the outdoors. Reset your mind. Make the world around you better.**
 
